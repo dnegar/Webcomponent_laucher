@@ -685,6 +685,7 @@ async function pull(args) {
         remote,
         remoteRef: ref,
         fastForward: true,
+        forced: true,
         singleBranch: true,
         onAuth() {
           return authenticate.fill();

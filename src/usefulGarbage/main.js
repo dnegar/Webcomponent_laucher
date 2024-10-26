@@ -1,6 +1,6 @@
 // src/main.js
-import { loadComponentFromRepo } from './utils/componentLoader';
-import { register } from './serviceWorkerRegistration';
+import { loadComponentFromRepo } from './componentLoader';
+import { register } from '../serviceWorkerRegistration';
 
 await register();
 

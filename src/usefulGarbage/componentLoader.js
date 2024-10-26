@@ -4,20 +4,18 @@ import MagicPortal from '../libs/MagicPortalES6.js';
 let workerThread;
 
 async function initializeWorker() {
-    const gitWorker = new Worker("/src/workers/worker.js");
+    const gitWorker = new Worker("/src/workers/gitWorker.js");
     const portal = new MagicPortal(gitWorker);
     workerThread = await portal.get("workerThread");
     
     console.log('Worker initialized:', workerThread);
 }
 
-// Clone repository and read Web Component file
-export async function loadComponentFromRepo({ filePath, attributes }) {
+export async function loadComponentFromRepo({ fileName, attributes }) {
     if (!workerThread) {
         await initializeWorker();
     }
 
-    // Configure the worker as needed
     await workerThread.setDir('/');
     await workerThread.setDepth(10);
     await workerThread.setAuthParams('ahmadkani', '12345678');
@@ -26,15 +24,12 @@ export async function loadComponentFromRepo({ filePath, attributes }) {
     });
     await workerThread.setConfigs({ username: 'ahmadkani', email: 'asghar' });
     
-    // Fetch the Web Component content
-    const content = await workerThread.readFile({ filePath });
-    console.log('Fetched content:', content);
+    const webComponentContent = await workerThread.readFile({ filePath: `/${fileName}` });
+    console.log('Fetched content:', webComponentContent);
 
-    // Run the component with attributes
-    runWebComponent(content, attributes);
+    runWebComponent(webComponentContent, attributes);
 }
 
-// Run the Web Component and apply attributes
 function runWebComponent(content, attributes = {}) {
     const scriptElement = document.createElement('script');
     scriptElement.textContent = content;
@@ -44,7 +39,6 @@ function runWebComponent(content, attributes = {}) {
     if (webComponentName) {
         const webComponentInstance = document.createElement(webComponentName);
 
-        // Apply attributes to the component
         Object.keys(attributes).forEach(attr => {
             webComponentInstance.setAttribute(attr, attributes[attr]);
         });

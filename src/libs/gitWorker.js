@@ -10,11 +10,11 @@
 /* eslint-env worker */
 
 importScripts(
-  '/src/libs/require.js',
+  './require.js',
 );
 
 require({
-  baseUrl: "../libs"
+  baseUrl: "./"
 },
 ["require", "MagicPortal", "LightningFS", "myGitHttp", "IsomorphicGit"],
 function(require, MagicPortal, LightningFS, GitHttp, git) {
@@ -512,6 +512,7 @@ async function doCloneAndStuff(args) {
       consoleLog(`Directory ${repoName} already exists. Using existing directory...`);
       let head = await currentBranch();
       await setRef(head);
+      return ({handleNoRefResult, message: 'exists'});
     } else {
       consoleLog(`Cloning repository ${repoName}...`);
       cloneResult = await clone(args);
@@ -529,7 +530,7 @@ async function doCloneAndStuff(args) {
       handleNoRefResult = await handleNoRef(args);
       await initializeLocalBranches();
     }
-    return handleNoRefResult;
+    return ({handleNoRefResult, message: 'notExist'});
   } catch (error) {
     await handleDeleteCloseAndReclone(args);
     throw error;
@@ -775,15 +776,14 @@ async function mkdirRecursive(path) {
   }
 }
 
-
-//This function takes username, email, remote, ref and onAuth() and onAuthFailure()
+//This function takes url, username, email
 //as arguments and pulls the remote directory
 async function pull(args) {
   await setUrl(args.url);
   try {
     await setConfigs(args);
     try {
-      await fetchWithServiceWorker('pull', args); // Attempt to pull with the main branch
+      await fetchWithServiceWorker('pull', args);
       await updateLocalCommits();
     } catch (error) {
       throw error;

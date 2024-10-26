@@ -8,6 +8,14 @@
 </head>
 <body>
   <h1>Service Worker Example</h1>
-  <script type="module" src="/src/main.js"></script>
-</body>
+  <script type='module' src="/src/libs/componentLauncher.js"></script>
+
+  <!-- Use the custom element -->
+  <component-launcher 
+      repoUrl="https://gitea.com/ahmadofski/new/_new/" 
+      username="ahmadofski" 
+      password="jJ3DLvK4AKfVJEx" 
+      attributes='{"title": "User Dashboard", "data": [{"name": "John Doe", "age": 30, "email": "john@example.com"}, {"name": "Jane Smith", "age": 25, "email": "jane@example.com"}]}'
+      fileName="wc3.js">
+  </component-launcher></body>
 </html>

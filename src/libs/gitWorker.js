@@ -532,7 +532,6 @@ async function doCloneAndStuff(args) {
     }
     return ({handleNoRefResult, message: 'notExist'});
   } catch (error) {
-    await handleDeleteCloseAndReclone(args);
     throw error;
   }
 }

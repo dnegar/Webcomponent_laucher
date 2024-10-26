@@ -365,81 +365,106 @@ async function regenerateIdxFiles() {
   }
 }
 
-async function clone(args) {
-  noMainErrorCounts.cloneCount ++;
-  let cloneResult = {};
-  let repoName = await extractRepoAddress(args.url);
-  await mutex.lock();
-  try {
-      console.log('ref', ref)
-      if (!repoFileSystems[repoName]) {
-          await initializeStore(repoName);
-      }
+async function retryOperation(operation, args, maxRetries = 5) {
+  let retryCount = 0;
+  let delay = 1000;
 
-      fs = repoFileSystems[repoName];
-      cloneResult = await fetchCachedFileList(repoName);
-      if (!cloneResult) {
-          const result = await git.clone({
-              ...args,
-              fs,
-              cache,
-              http,
-              dir,
-              remote,
-              ref,
-              corsProxy,
-              depth,
-              onAuth() {
-                  return authenticate.fill();
-              },
-              onAuthFailure() {
-                  return authenticate.rejected();
-              },
-          });
-
-          console.log('Clone successful', result);
-          if (useCacheForRepo){
-            //await regenerateIdxFiles();
-            const fileList = await listFiles();
-            await cacheFileList(repoName, fileList);
-          }
-          cloneResult = { isCacheUsed: false, ref: ref};
-
-          await logToCache('clone', { repoName, result });
+  while (retryCount <= maxRetries) {
+    try {
+      return await operation(args);
+    } catch (error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('CORS') || error.message.includes('HTTP Error')) {
+        retryCount++;
+        if (retryCount > maxRetries) throw new Error('Max retries reached for operation.');
+        
+        console.log(`Network error, Retrying operation in ${delay / 1000} seconds... (Attempt ${retryCount})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2;
       } else {
-          await writeFilesToIndexedDB(cloneResult);
-          await gitReset({ dir, ref: 'HEAD~1', branch: ref });
-          await logToCache('clone (from cache)', { repoName });
-          console.log('log', await retrieveLogFromCache());
-          cloneResult = { isCacheUsed: true, ref: ref };
+        throw error;
       }
-
-      return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
-  } catch (error) {
-      console.error('Clone failed with error:', error);
-      if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
-            let isHandled = await handleNoMainError(clone, args, noMainErrorCounts.cloneCount);
-            if (!isHandled) {
-                throw error;
-            }
-            noMainErrorCounts.cloneCount = 0;
-            cloneResult = { isCacheUsed: false, ref: ref};
-            return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
-      } else if (error?.response?.status === 500) {
-          console.error('Server responded with 500 Internal Server Error');
-          throw new Error('Internal Server Error: The server encountered an error.');
-      } else if (typeof error === 'object') {
-          console.error('Error properties:', Object.keys(error));
-          throw new Error(error.message || 'An unknown error occurred during the clone operation');
-      } else {
-          console.error('Unknown error:', error);
-          throw new Error('An unknown error occurred during the clone operation');
-      }
-  } finally {
-      mutex.unlock();
+    }
   }
 }
 
+
+async function clone(args) {
+  return await retryOperation(async (args) => {
+
+    noMainErrorCounts.cloneCount ++;
+    let cloneResult = {};
+    let repoName = await extractRepoAddress(args.url);
+    await mutex.lock();
+    try {
+        console.log('ref', ref)
+        if (!repoFileSystems[repoName]) {
+            await initializeStore(repoName);
+        }
+
+        fs = repoFileSystems[repoName];
+        cloneResult = await fetchCachedFileList(repoName);
+        if (!cloneResult) {
+            const result = await git.clone({
+                ...args,
+                fs,
+                cache,
+                http,
+                dir,
+                remote,
+                ref,
+                corsProxy,
+                depth,
+                onAuth() {
+                    return authenticate.fill();
+                },
+                onAuthFailure() {
+                    return authenticate.rejected();
+                },
+            });
+
+            console.log('Clone successful', result);
+            if (useCacheForRepo){
+              //await regenerateIdxFiles();
+              const fileList = await listFiles();
+              await cacheFileList(repoName, fileList);
+            }
+            cloneResult = { isCacheUsed: false, ref: ref};
+
+            await logToCache('clone', { repoName, result });
+        } else {
+            await writeFilesToIndexedDB(cloneResult);
+            await gitReset({ dir, ref: 'HEAD~1', branch: ref });
+            await logToCache('clone (from cache)', { repoName });
+            console.log('log', await retrieveLogFromCache());
+            cloneResult = { isCacheUsed: true, ref: ref };
+        }
+
+        return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
+    } catch (error) {
+        console.error('Clone failed with error:', error);
+        if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
+              let isHandled = await handleNoMainError(clone, args, noMainErrorCounts.cloneCount);
+              if (!isHandled) {
+                  throw error;
+              }
+              noMainErrorCounts.cloneCount = 0;
+              cloneResult = { isCacheUsed: false, ref: ref};
+              return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
+        } else if (error?.response?.status === 500) {
+            console.error('Server responded with 500 Internal Server Error');
+            throw new Error('Internal Server Error: The server encountered an error.');
+        } else if (typeof error === 'object') {
+            console.error('Error properties:', Object.keys(error));
+            throw new Error(error.message || 'An unknown error occurred during the clone operation');
+        } else {
+            console.error('Unknown error:', error);
+            throw new Error('An unknown error occurred during the clone operation');
+        }
+    } finally {
+        mutex.unlock();
+      }
+    }, args);
+}
 
 async function cacheFileList(cacheKey, fileList) {
   try {
@@ -637,230 +662,242 @@ const authenticate = {
 };
 
 async function pull(args) {
-  noMainErrorCounts.pullCount ++;
-  let pullResult = {};
-  await mutex.lock();
-  try {
-    console.log('Entering pull function with arguments:', args);
+  return await retryOperation(async (args) => {
 
-    if (!ref) {
-      throw new Error('Reference (ref) is not defined.');
-    }
+    noMainErrorCounts.pullCount ++;
+    let pullResult = {};
+    await mutex.lock();
+    try {
+      console.log('Entering pull function with arguments:', args);
 
-    console.log('Using reference (ref):', ref);
-
-    const result = await git.pull({
-      ...args,
-      fs,
-      http,
-      dir,
-      corsProxy,
-      remote,
-      remoteRef: ref,
-      fastForward: true,
-      singleBranch: true,
-      onAuth() {
-        return authenticate.fill();
-      },
-      onAuthFailure() {
-        return authenticate.rejected();
-      },
-    });
-    pullResult = { ref: ref}
-    console.log('Pull successful. Result:', result);
-    return { success: true, message: result, data: pullResult };
-  } catch (error) {
-    if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
-      let isHandled = await handleNoMainError(pull, args, noMainErrorCounts.pullCount);
-      if (!isHandled) {
-          throw error;
+      if (!ref) {
+        throw new Error('Reference (ref) is not defined.');
       }
-      noMainErrorCounts.pullCount = 0;
-      pullResult = { ref: ref};
-      return { success: true, message: 'pull was successful', data: pullResult };
-    } 
-    console.error('Error occurred during pull operation:', {
-      message: error.message,
-      stack: error.stack,
-      args
-    });
 
-    throw new Error(`Pull failed: ${error.message}`);
-  } finally {
-    console.log('Exiting pull function.');
-    mutex.unlock();
-  }
+      console.log('Using reference (ref):', ref);
+
+      const result = await git.pull({
+        ...args,
+        fs,
+        http,
+        dir,
+        corsProxy,
+        remote,
+        remoteRef: ref,
+        fastForward: true,
+        singleBranch: true,
+        onAuth() {
+          return authenticate.fill();
+        },
+        onAuthFailure() {
+          return authenticate.rejected();
+        },
+      });
+      pullResult = { ref: ref}
+      console.log('Pull successful. Result:', result);
+      return { success: true, message: result, data: pullResult };
+    } catch (error) {
+      if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
+        let isHandled = await handleNoMainError(pull, args, noMainErrorCounts.pullCount);
+        if (!isHandled) {
+            throw error;
+        }
+        noMainErrorCounts.pullCount = 0;
+        pullResult = { ref: ref};
+        return { success: true, message: 'pull was successful', data: pullResult };
+      } 
+      console.error('Error occurred during pull operation:', {
+        message: error.message,
+        stack: error.stack,
+        args
+      });
+
+      throw new Error(`Pull failed: ${error.message}`);
+    } finally {
+      console.log('Exiting pull function.');
+      mutex.unlock();
+    }
+  }, args);
 }
     
 async function fastForward(args) {
-  noMainErrorCounts.ffCount ++;
-  let ffResult = {};
-  await mutex.lock();
-  try {
-    console.log('Entering fastForward function with arguments:', args);
+  return await retryOperation(async (args) => {
 
-    if (!ref) {
-      throw new Error('Reference (ref) is not defined.');
-    }
-    console.log('Using reference (ref):', ref);
+    noMainErrorCounts.ffCount ++;
+    let ffResult = {};
+    await mutex.lock();
+    try {
+      console.log('Entering fastForward function with arguments:', args);
 
-    const result = await  git.fastForward({
-      ...args,
-      fs,
-      cache,
-      http,
-      dir,
-      remote,
-      corsProxy,
-      ref,
-      singleBranch: true,
-      onAuth() {
-        return authenticate.fill();
-      },
-      onAuthFailure() {
-        return authenticate.rejected();
-      },
-    });
-
-    ffResult = { ref: ref}
-    console.log('FastForward pull successful. Result:', result);
-    return { success: true, message: result, data: ffResult };
-  } catch (error) {
-    //handling main and master errors
-    if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
-      let isHandled = await handleNoMainError(fastForward, args, noMainErrorCounts.ffCount);
-      if (!isHandled) {
-          throw error;
+      if (!ref) {
+        throw new Error('Reference (ref) is not defined.');
       }
-      noMainErrorCounts.ffCount = 0;
-      ffResult = { ref: ref};
-      return { success: true, message: 'FastForward was successful', data: ffResult };
-    } 
-    console.error('Error occurred during fastForward operation:', {
-      message: error.message,
-      stack: error.stack,
-      args
-    });
+      console.log('Using reference (ref):', ref);
 
-    throw new Error(`FastForward pull failed: ${error.message}`);
-  } finally {
-    console.log('Exiting fastForward function.');
-    mutex.unlock();
-  }
+      const result = await  git.fastForward({
+        ...args,
+        fs,
+        cache,
+        http,
+        dir,
+        remote,
+        corsProxy,
+        ref,
+        singleBranch: true,
+        onAuth() {
+          return authenticate.fill();
+        },
+        onAuthFailure() {
+          return authenticate.rejected();
+        },
+      });
+
+      ffResult = { ref: ref}
+      console.log('FastForward pull successful. Result:', result);
+      return { success: true, message: result, data: ffResult };
+    } catch (error) {
+      //handling main and master errors
+      if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
+        let isHandled = await handleNoMainError(fastForward, args, noMainErrorCounts.ffCount);
+        if (!isHandled) {
+            throw error;
+        }
+        noMainErrorCounts.ffCount = 0;
+        ffResult = { ref: ref};
+        return { success: true, message: 'FastForward was successful', data: ffResult };
+      } 
+      console.error('Error occurred during fastForward operation:', {
+        message: error.message,
+        stack: error.stack,
+        args
+      });
+
+      throw new Error(`FastForward pull failed: ${error.message}`);
+    } finally {
+      console.log('Exiting fastForward function.');
+      mutex.unlock();
+    }
+  }, args);
 }
 
 async function push(args) {
-  noMainErrorCounts.pushCount ++;
-  let pushResult = {};
-  await mutex.lock();
-  try {
-    console.log('Entering push function with arguments:', args);
+  return await retryOperation(async (args) => {
 
-    if (!ref) {
-      throw new Error('Reference (ref) is not defined.');
-    }
-    console.log('Using reference (ref):', ref);
+    noMainErrorCounts.pushCount ++;
+    let pushResult = {};
+    await mutex.lock();
+    try {
+      console.log('Entering push function with arguments:', args);
 
-    const result = await git.push({
-      ...args,
-      fs,
-      http,
-      dir,
-      corsProxy,
-      remote,
-      ref,
-      force: true,
-      onAuth() {
-        return authenticate.fill();
-      },
-      onAuthFailure() {
-        return authenticate.rejected();
-      },
-    });
-
-    pushResult = { ref: ref};
-    console.log('Push successful. Result:', result);
-    return { success: true, message: 'Push was successful', data: pushResult };
-  } catch (error) {
-    //handling main and master errors
-    if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
-      let isHandled = await handleNoMainError(push, args, noMainErrorCounts.pushCount);
-      if (!isHandled) {
-          throw error;
+      if (!ref) {
+        throw new Error('Reference (ref) is not defined.');
       }
-      noMainErrorCounts.pushCount = 0;
+      console.log('Using reference (ref):', ref);
+
+      const result = await git.push({
+        ...args,
+        fs,
+        http,
+        dir,
+        corsProxy,
+        remote,
+        ref,
+        force: true,
+        onAuth() {
+          return authenticate.fill();
+        },
+        onAuthFailure() {
+          return authenticate.rejected();
+        },
+      });
+
       pushResult = { ref: ref};
+      console.log('Push successful. Result:', result);
       return { success: true, message: 'Push was successful', data: pushResult };
-    } 
-    console.error('Error occurred during push operation:', {
-      message: error.message,
-      stack: error.stack,
-      args
-    });
-  } finally {
-    console.log('Exiting push function.');
-    mutex.unlock();
-  }
+    } catch (error) {
+      //handling main and master errors
+      if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
+        let isHandled = await handleNoMainError(push, args, noMainErrorCounts.pushCount);
+        if (!isHandled) {
+            throw error;
+        }
+        noMainErrorCounts.pushCount = 0;
+        pushResult = { ref: ref};
+        return { success: true, message: 'Push was successful', data: pushResult };
+      } 
+      console.error('Error occurred during push operation:', {
+        message: error.message,
+        stack: error.stack,
+        args
+      });
+    } finally {
+      console.log('Exiting push function.');
+      mutex.unlock();
+    }
+  }, args);
 }
 
 async function doFetch(args) {
-  noMainErrorCounts.fetchCount ++;
-  let fetchResult = {};
-  await mutex.lock();
-  try {
-    // Log entry into the function
-    console.log('Entering doFetch function with arguments:', args);
+  return await retryOperation(async (args) => {
 
-    // Ensure `ref` is defined
-    if (!ref) {
-      throw new Error('Reference (ref) is not defined.');
-    }
+    noMainErrorCounts.fetchCount ++;
+    let fetchResult = {};
+    await mutex.lock();
+    try {
+      // Log entry into the function
+      console.log('Entering doFetch function with arguments:', args);
 
-    console.log('Using reference (ref):', ref);
-
-    const result = await git.fetch({
-      ...args,
-      fs,
-      http,
-      dir,
-      corsProxy,
-      ref,
-      remote,
-      depth,
-      singleBranch: false,
-      tags: false,
-      onAuth() {
-        return authenticate.fill();
-      },
-      onAuthFailure() {
-        return authenticate.rejected();
-      },
-    });
-
-    fetchResult = { ref: ref };
-    console.log('Fetch successful. Result:', result);
-    return { success: true, message: 'Fetch was successful', data: fetchResult};
-  } catch (error) {
-    if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
-      let isHandled = await handleNoMainError(doFetch, args, noMainErrorCounts.fetchCount);
-      if (isHandled === false){
-        throw error;
+      // Ensure `ref` is defined
+      if (!ref) {
+        throw new Error('Reference (ref) is not defined.');
       }
-      noMainErrorCounts.fetchCount = 0;
-      fetchResult = { ref: ref};
-      return { success: true, message: 'The repo has successfully cloned', data: fetchResult };
-    }
-    console.error('Error occurred during fetch operation:', {
-      message: error.message,
-      stack: error.stack,
-      args
-    });
-    throw new Error(`Fetch failed: ${error.message}`);
-  } finally {
-    // Log exit from the function
-    console.log('Exiting doFetch function.');
-    mutex.unlock();
-  }
+
+      console.log('Using reference (ref):', ref);
+
+      const result = await git.fetch({
+        ...args,
+        fs,
+        http,
+        dir,
+        corsProxy,
+        ref,
+        remote,
+        depth,
+        singleBranch: false,
+        tags: false,
+        onAuth() {
+          return authenticate.fill();
+        },
+        onAuthFailure() {
+          return authenticate.rejected();
+        },
+      });
+
+      fetchResult = { ref: ref };
+      console.log('Fetch successful. Result:', result);
+      return { success: true, message: 'Fetch was successful', data: fetchResult};
+    } catch (error) {
+      if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
+        let isHandled = await handleNoMainError(doFetch, args, noMainErrorCounts.fetchCount);
+        if (isHandled === false){
+          throw error;
+        }
+        noMainErrorCounts.fetchCount = 0;
+        fetchResult = { ref: ref};
+        return { success: true, message: 'The repo has successfully cloned', data: fetchResult };
+      }
+      console.error('Error occurred during fetch operation:', {
+        message: error.message,
+        stack: error.stack,
+        args
+      });
+      throw new Error(`Fetch failed: ${error.message}`);
+    } finally {
+      // Log exit from the function
+      console.log('Exiting doFetch function.');
+      mutex.unlock();
+    };
+  }, args);
 }
 
 async function createBranch(args) {

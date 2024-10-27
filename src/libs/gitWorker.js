@@ -10,11 +10,11 @@
 /* eslint-env worker */
 
 importScripts(
-  './require.js',
+  './../libs/require.js',
 );
 
 require({
-  baseUrl: "./"
+  baseUrl: "./../libs"
 },
 ["require", "MagicPortal", "LightningFS", "myGitHttp", "IsomorphicGit"],
 function(require, MagicPortal, LightningFS, GitHttp, git) {
@@ -28,16 +28,18 @@ let url = '';
 let remote = 'origin';
 let commits = [];
 let depth = 10;
+const gitConfigFilePath = `${dir}/.git/settings`;
 let repoFileSystems = {};
 let fs = new LightningFS('fs');
-let loggingOn = true;
+const consoleDotLoggingOn = true;
 
-function consoleLog(...parameters) {
-  if (!loggingOn) return;
+function consoleDotLog(...parameters) {
+  if (!consoleDotLoggingOn) return;
   console.log(...parameters)
 }
 
-this.addEventListener("message", ({ data }) => consoleLog(data));
+
+this.addEventListener("message", ({ data }) => consoleDotLog(data));
 
 //broadcastChannel for sending set functions' parameters
 function sendMessageToSW(message) {
@@ -88,7 +90,7 @@ async function fetchWithServiceWorker(operation, args) {
           body: JSON.stringify({ operation, args }),
           headers: { 'Content-Type': 'application/json' }
       });
-      consoleLog('response',response.text)
+      consoleDotLog('response',response.text)
 
       if (!response.ok) {
           let errorMessage = `Fetch failed with status: ${response.status}`;
@@ -127,7 +129,7 @@ async function fetchWithServiceWorker(operation, args) {
 
       try {
           const jsonResponse = await response.json();
-          consoleLog('jsonResponse',jsonResponse)
+          consoleDotLog('jsonResponse',jsonResponse)
           return jsonResponse;
       } catch (jsonError) {
           console.error('Error parsing JSON response:', jsonError);
@@ -146,8 +148,13 @@ async function setDir(_dir) {
   await self.setDir();
 }
 
+//setUrl is an essential function that should be called when you want to
+//work with files in the fs, because fileSystem is named after url address
 async function setUrl(_url) {
   url = _url;
+  const repoName = await extractRepoAddress(url);
+  initializeStore(repoName);
+  fs = repoFileSystems[repoName];
 }
 
 async function setRef(_ref) {
@@ -185,19 +192,19 @@ async function setRemote(_remote) {
 async function checkoutBranch(_ref) {
 
     let current = await currentBranch();
-    consoleLog('current branch', current)
-    consoleLog('commits', commits)
-    consoleLog('ref', ref)
-    consoleLog('_ref', _ref)
+    consoleDotLog('current branch', current)
+    consoleDotLog('commits', commits)
+    consoleDotLog('ref', ref)
+    consoleDotLog('_ref', _ref)
 
     let branchesList = await listBranches();
-    consoleLog('branchesList', branchesList)
+    consoleDotLog('branchesList', branchesList)
 
     if (!branchesList.includes(_ref)){
       await createBranch({ref: _ref});
     }
     if (ref === _ref || current === _ref){
-      consoleLog(`you are already on the branch ${_ref}`);
+      consoleDotLog(`you are already on the branch ${_ref}`);
       return;
     }
     else{
@@ -206,11 +213,11 @@ async function checkoutBranch(_ref) {
         await checkout({ref: _ref, noCheckout: false, noUpdateHead: false});
         ref = _ref;
         await doFetch({});
-        consoleLog('done');
+        consoleDotLog('done');
         return;
       }
       else{
-        consoleLog('failed');
+        consoleDotLog('failed');
         return 0;
       }
     }
@@ -219,7 +226,7 @@ async function checkoutBranch(_ref) {
 
 //create local branch, branch
 async function createBranch(args) {
-  //consoleLog('object', args.object);
+  //consoleDotLog('object', args.object);
   return await git.branch({
     ...args,
     fs,
@@ -265,6 +272,90 @@ async function currentBranch() {
   })
 }
 
+function parseIni(content) {
+  const result = {};
+  let currentSection = null;
+
+  content.split(/\r?\n/).forEach((line) => {
+    line = line.trim();
+    if (!line || line.startsWith(';') || line.startsWith('#')) {
+      // Ignore empty lines and comments
+      return;
+    }
+    if (line.startsWith('[') && line.endsWith(']')) {
+      // New section
+      currentSection = line.slice(1, -1).trim();
+      result[currentSection] = result[currentSection] || {};
+    } else {
+      // Key-value pair
+      const [key, value] = line.split('=').map((part) => part.trim());
+      if (currentSection) {
+        result[currentSection][key] = value;
+      }
+    }
+  });
+  return result;
+}
+
+function stringifyIni(data) {
+  let iniString = '';
+
+  Object.keys(data).forEach((section) => {
+    iniString += `[${section}]\n`;
+    Object.entries(data[section]).forEach(([key, value]) => {
+      iniString += `    ${key} = ${value}\n`;
+    });
+    iniString += '\n';
+  });
+
+  return iniString;
+}
+
+async function readSettingsFile(type = null, key = null) {
+  try {
+    const content = await readFile({filePath: gitConfigFilePath});
+    const settingsData = parseIni(content);
+    consoleDotLog('settingsData,',settingsData)
+
+    if (type && key) {
+      return settingsData[type] && settingsData[type][key] ? settingsData[type][key] : null;
+    } else if (type) {
+      return settingsData[type] ? settingsData[type] : null;
+    }
+
+    return settingsData;
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw err;
+  }
+}
+
+async function writeSettingsFile(data) {
+  const iniContent = stringifyIni(data);
+  await writeFile({filePath: gitConfigFilePath, fileContents: iniContent});
+}
+
+async function addToSetting(type, key, value) {
+  let settingsData = {};
+  try {
+    settingsData = await readSettingsFile();
+    consoleDotLog(settingsData)
+  } catch (error) {
+    consoleDotLog('No past data is available.');
+  }
+
+  if (!settingsData[type]) {
+    settingsData[type] = {};
+  }
+
+  settingsData[type][key] = value;
+
+
+  // Write the updated settings back to the file
+  await writeSettingsFile(settingsData);
+}
+
+
 //This function gets a filePath and push it to a remote repository
 //gets username, email, commitMessage, remote, url and filePath as parameters 
 async function doPushFile(args) {
@@ -274,7 +365,7 @@ async function doPushFile(args) {
     await push(args);
   }
   catch (error){
-    consoleLog('Something bad happened pushing your file: ', error)
+    consoleDotLog('Something bad happened pushing your file: ', error)
   }
 }
 
@@ -287,7 +378,7 @@ async function doPushAll(args) {
     await push(args);
   }
   catch (error){
-    consoleLog('Something bad happened pushing your files: ', error)
+    consoleDotLog('Something bad happened pushing your files: ', error)
   }
 }
 
@@ -300,7 +391,7 @@ async function removeAndPush(args) {
     await push(args);
   }
   catch (error){
-    consoleLog('Something bad happened pushing your files: ', error)
+    consoleDotLog('Something bad happened pushing your files: ', error)
   }
 }
 
@@ -337,7 +428,7 @@ async function isSync() {
     }
   }
   catch(error){
-    consoleLog(
+    consoleDotLog(
       'some error happend while checking whether you are sync or not: '
     , error);
   }
@@ -355,7 +446,7 @@ async function addRemote(args) {
     });
   }
   catch(error){
-    consoleLog('some error happend while adding remote: ', error)
+    consoleDotLog('some error happend while adding remote: ', error)
   }
 }
 
@@ -370,7 +461,7 @@ async function deleteRemote(args) {
     })
   }
   catch(error){
-    consoleLog('some error happend while deleting remote: ', error)
+    consoleDotLog('some error happend while deleting remote: ', error)
   }
 }
 
@@ -385,12 +476,12 @@ async function listRemotes() {
 //wipes fs
 async function wipeFs(repoName) {
   try {
-    consoleLog('wiping garbage fs ...')
+    consoleDotLog('wiping garbage fs ...')
     repoFileSystems[repoName] = new LightningFS(repoName, {
       fileStoreName: `fs_${repoName}`,
       wipe: true,
     });
-    consoleLog('Fs successfully wiped out ...')
+    consoleDotLog('Fs successfully wiped out ...')
   } catch (error) {
       console.error("Error wiping file system:", error);
       throw error; 
@@ -403,7 +494,7 @@ async function handleNoRef(args) {
   try {
     await addRemote(args);
     let branchList = await listRemoteBranches() || [];
-    consoleLog(branchList)
+    consoleDotLog(branchList)
     if (branchList.length == 0) {
       return false;
     }
@@ -434,7 +525,7 @@ async function initRemoteRepo(args){
     await addRemote(args)
   }
   catch(error){
-  consoleLog('something went wrong while initing your remote repo: ', error)
+  consoleDotLog('something went wrong while initing your remote repo: ', error)
   }
 }
 
@@ -446,8 +537,83 @@ async function init(){
     })
   }
   catch(error){
-  consoleLog('something went wrong while initing the repo: ', error)
+  consoleDotLog('something went wrong while initing the repo: ', error)
   }
+}
+
+async function getFileStoresFromDatabases() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.webkitGetDatabaseNames
+      ? indexedDB.webkitGetDatabaseNames()
+      : indexedDB.databases
+      ? indexedDB.databases()
+      : null;
+
+    if (!request) {
+      reject('Your browser does not support retrieving a list of IndexedDB databases');
+      return;
+    }
+
+    if (request instanceof Promise) {
+      request
+        .then((dbList) => {
+          processDatabaseList(dbList)
+            .then((fileStoreNames) => resolve(fileStoreNames))
+            .catch((err) => reject(err));
+        })
+        .catch((err) => reject(err));
+    } else {
+      request.onsuccess = async (event) => {
+        const dbList = event.target.result;
+        try {
+          const fileStoreNames = await processDatabaseList(dbList);
+          resolve(fileStoreNames);
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      request.onerror = (event) => {
+        reject(`Error retrieving database list: ${event.target.error}`);
+      };
+    }
+  });
+}
+
+async function processDatabaseList(dbList) {
+  const fileStoreNames = [];
+
+  for (const db of dbList) {
+    const dbName = typeof db === 'string' ? db : db.name; // Normalize db name
+
+    const dbOpenRequest = await openDatabase(dbName);
+    const fileStores = dbOpenRequest.objectStoreNames;
+
+    // Filter stores starting with "fs_" and map them with their database name
+    const fsStores = Array.from(fileStores)
+      .filter((store) => store.startsWith('fs_'))
+      .map((store) => ({ database: dbName, fileStore: store }));
+
+    fileStoreNames.push(...fsStores);
+  }
+
+  return fileStoreNames;
+}
+
+// Helper function to open each IndexedDB database
+function openDatabase(dbName) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(dbName);
+    
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      resolve(db);
+    };
+    
+    request.onerror = (event) => {
+      reject(`Error opening database ${dbName}: ${event.target.error}`);
+    };
+  });
 }
 
 async function extractRepoAddress(url) {
@@ -473,7 +639,7 @@ async function checkDirExists() {
 
   } catch (err) {
     if (err.code === 'ENOENT') {
-      consoleLog('Directory does not exist:', dir);
+      consoleDotLog('Directory does not exist:', dir);
       return false; // Directory or file does not exist
     } else {
       console.error('Error checking directory existence:', err);
@@ -483,13 +649,15 @@ async function checkDirExists() {
 }
 
 async function initializeStore(repoName) {
-  // Initialize the file system for the repository
-  repoFileSystems[repoName] = new LightningFS(repoName, {
-    fileStoreName: `fs_${repoName}`,
-    wipe: false, // Set to true if you want to clear the store each time
-  });
 
-  consoleLog(`Initialized file system for ${repoName}`);
+  if (!repoFileSystems[repoName]) {
+      repoFileSystems[repoName] = new LightningFS(repoName, {
+      fileStoreName: `fs_${repoName}`,
+      wipe: false, // Set to true if you want to clear the store each time
+    });
+  }
+
+  consoleDotLog(`Initialized file system for ${repoName}`);
 }
 
 //returns false if the repo is not initiated yet, then you can init by using initRemoteRepo()
@@ -509,17 +677,17 @@ async function doCloneAndStuff(args) {
 
     let dirExists = await checkDirExists();
     if (dirExists && !useNetwork) {
-      consoleLog(`Directory ${repoName} already exists. Using existing directory...`);
+      consoleDotLog(`Directory ${repoName} already exists. Using existing directory...`);
       let head = await currentBranch();
       await setRef(head);
       return ({handleNoRefResult, message: 'exists'});
     } else {
-      consoleLog(`Cloning repository ${repoName}...`);
+      consoleDotLog(`Cloning repository ${repoName}...`);
       cloneResult = await clone(args);
       ref = cloneResult.data.ref;
       let head = await currentBranch();
       await setRef(head);
-      consoleLog(cloneResult, head)
+      consoleDotLog(cloneResult, head)
       if (cloneResult.data){
         if (cloneResult.data.isCacheUsed){
           await fastForward({
@@ -543,9 +711,9 @@ async function handleDeleteCloseAndReclone(args) {
   try {
     await deleteIndexedDB(repoName);
 
-    consoleLog('Trying to reclone the repository...');
+    consoleDotLog('Trying to reclone the repository...');
     await doCloneAndStuff({...args, url: url});
-    consoleLog('Reclone successful!');
+    consoleDotLog('Reclone successful!');
 
   } catch (error) {
     console.error(`Error during delete, close, and reclone process for ${repoName}:`, error);
@@ -557,7 +725,7 @@ async function deleteIndexedDB(dbName) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(dbName);
     request.onsuccess = () => {
-      consoleLog(`Deleted database ${dbName} successfully`);
+      consoleDotLog(`Deleted database ${dbName} successfully`);
       resolve();
     };
     request.onerror = (event) => {
@@ -575,7 +743,7 @@ async function removeDirRecursively(path) {
   try {
     const stat = await fs.promises.stat(path);
     if (!stat.isDirectory()) {        
-      consoleLog(fullPath)
+      consoleDotLog(fullPath)
       await fs.promises.unlink(fullPath);
     }
     else{
@@ -603,7 +771,7 @@ async function updateLocalCommits() {
   const remoteCommits = await log({});
   commits = Object.values(remoteCommits).map((item) => item.oid);
   } catch(error){
-    consoleLog('Some error occured while updating local commits: ', error)
+    consoleDotLog('Some error occured while updating local commits: ', error)
   }
 }
 
@@ -614,7 +782,7 @@ async function initializeLocalBranches() {
     let localBranches = await listBranches();
     localBranches.push('HEAD');
     filteredBranches = remoteBranches.filter(item => !localBranches.includes(item));
-    consoleLog('filteredBranches',filteredBranches)
+    consoleDotLog('filteredBranches',filteredBranches)
     let path = (dir === '/') ? '' : dir
     await Promise.all(filteredBranches.map(async item => {
       await createBranch({
@@ -681,9 +849,9 @@ async function unlink(filePath) {
 //you can change depth by using setDepth function
 async function log(args) {
   try {
-    consoleLog('Attempting to retrieve log with the following args:', { ...args, fs, depth, dir, ref });
+    consoleDotLog('Attempting to retrieve log with the following args:', { ...args, fs, depth, dir, ref });
     const logResult = await git.log({ ...args, fs, depth, dir, ref });
-    consoleLog('git.log result:', logResult);
+    consoleDotLog('git.log result:', logResult);
     return logResult;
 
   } catch (error) {
@@ -720,7 +888,7 @@ async function setUsername(args) {
   try {
     await git.setConfig({
       fs,
-      dir: dir,
+      dir,
       path: 'user.name',
       value: args.username
     })
@@ -740,6 +908,49 @@ async function setEmail(args) {
     })
   } catch (error) {
     console.error('An error occurred while setting email:', error);
+  }
+}
+
+async function getEmail() {
+  try {
+    const email = await git.getConfig({
+      fs,
+      dir,
+      path: 'user.email'
+    });
+    consoleDotLog(email);
+    return email;
+  } catch (error) {
+    console.error('An error occurred while getting email:', error);
+  }
+}
+
+// Function to get username
+async function getUsername() {
+  try {
+    const username = await git.getConfig({
+      fs,
+      dir,
+      path: 'user.name'
+    });
+    consoleDotLog(username);
+    return username;
+  } catch (error) {
+    console.error('An error occurred while getting username:', error);
+  }
+}
+
+async function getRemoteUrl() {
+  try {
+    const remoteUrl = await git.getConfig({
+      fs,
+      dir,
+      path: `remote.${remote}.url`
+    });
+    consoleDotLog(remoteUrl);
+    return remoteUrl;
+  } catch (error) {
+    console.error('An error occurred while getting remote url:', error);
   }
 }
 
@@ -776,14 +987,15 @@ async function mkdirRecursive(path) {
   }
 }
 
-//This function takes url, username, email
+
+//This function takes username, email, remote, ref and onAuth() and onAuthFailure()
 //as arguments and pulls the remote directory
 async function pull(args) {
   await setUrl(args.url);
   try {
     await setConfigs(args);
     try {
-      await fetchWithServiceWorker('pull', args);
+      await fetchWithServiceWorker('pull', args); // Attempt to pull with the main branch
       await updateLocalCommits();
     } catch (error) {
       throw error;
@@ -802,7 +1014,7 @@ async function fastForward(args) {
       throw error;
     }
   } catch (error) {
-    consoleLog('This error occured while fast-forwarding: ', error);
+    consoleDotLog('This error occured while fast-forwarding: ', error);
   }
 }
 
@@ -832,7 +1044,15 @@ async function addDot() {
   }
 }
 
-
+//gets filepath and filecontents as parameters
+async function addFileToStaging(args) {
+  try {
+    await writeFile(args);
+    await addFile(args);
+  } catch (error) {
+    console.error('Error adding file to staging area:', error);
+  } 
+}
 
 //gets username, email and commitMessage as parameters 
 async function commit(args) {
@@ -848,7 +1068,7 @@ try{
   }));
 }
 catch (error) {
-  consoleLog('This error occured while commiting: ', error)
+  consoleDotLog('This error occured while commiting: ', error)
 }
 }
 
@@ -865,18 +1085,17 @@ async function readFile(args) {
 //and paths for values
 async function listFiles(filePath = dir) {
   try {
-    consoleLog('dir',dir)
       let path = filePath
       let files = await fs.promises.readdir(filePath);
       let result = {};
 
       for (const file of files) {
           if (path !== '/') {
-            consoleLog('filePath',filePath)
+            consoleDotLog('filePath',filePath)
             filePath = path + '/' + file;
           }
           else {
-            consoleLog('filePath',filePath)
+            consoleDotLog('filePath',filePath)
             filePath = path + file;
           }
           const stat = await fs.promises.lstat(filePath);
@@ -885,8 +1104,8 @@ async function listFiles(filePath = dir) {
           } else {
               result[filePath] = file;
           }
-      
     }
+    consoleDotLog(result);
     return result;
   } catch (error) {
     console.error('Error listing files:', error);
@@ -952,7 +1171,7 @@ async function statusMapper(statusMatrix) {
         resultObject[dir + file] = status;
       }
     }); 
-    consoleLog(resultObject)
+    consoleDotLog(resultObject)
     return resultObject;
   } catch (error) {
     console.error('Error getting changed files list:', error);
@@ -967,12 +1186,21 @@ async function statusMapper(statusMatrix) {
     setDepth,
     setConfigs,
     setRemote,
+    setUrl,
+    getUsername,
+    getEmail,
+    getRemoteUrl,
     commit,
+    addToSetting,
     addFile,
+    addFileToStaging,
     addDot,
     doPushFile,
     doPushAll,
+    readSettingsFile,
     removeAndPush,
+    init,
+    extractRepoAddress,
     initRemoteRepo,
     doCloneAndStuff,
     listBranches,
@@ -985,6 +1213,7 @@ async function statusMapper(statusMatrix) {
     readFile,
     writeFile,
     getChangedFilesList,
+    getFileStoresFromDatabases,
     checkoutBranch,
     doFetch
   });

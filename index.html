@@ -4,18 +4,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Service Worker Example</title>
+  <title>Web component loader</title>
 </head>
 <body>
-  <h1>Service Worker Example</h1>
   <script type='module' src="/src/libs/componentLauncher.js"></script>
 
   <!-- Use the custom element -->
   <component-launcher 
-      repoUrl="https://gitea.com/ahmadofski/new/_new/" 
-      username="ahmadofski" 
-      password="jJ3DLvK4AKfVJEx" 
+      repoUrl="https://github.com/ahmadkani/wc" 
+      username="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" 
+      password="x-oauth-basic"
       attributes='{"title": "User Dashboard", "data": [{"name": "John Doe", "age": 30, "email": "john@example.com"}, {"name": "Jane Smith", "age": 25, "email": "jane@example.com"}]}'
-      fileName="wc3.js">
+      fileName="wc.js">
   </component-launcher></body>
 </html>

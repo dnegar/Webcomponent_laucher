@@ -33,14 +33,15 @@ class componentLauncher extends HTMLElement {
 
     async getWebComponentFromRepo(repoUrl, username, password, fileName) {
         const workerThread = this.workerThread;
+        await workerThread.setAdditionalRepoText('1');
         await workerThread.setRef('main');
         await workerThread.setDepth(10);
         await workerThread.setAuthParams(username, password);
         const cloneResult = await workerThread.doCloneAndStuff({ url: repoUrl });
-        await workerThread.isSync();
-        await workerThread.doFetch({url: repoUrl});
+        await workerThread.setAdditionalRepoText('2');
+        const isSync = await workerThread.isSync();
         if (cloneResult.message === 'exists'){
-            await workerThread.pull({
+            !isSync && await workerThread.pull({
                 url: repoUrl,
                 username: username,
                 email: 'wc@example.com',

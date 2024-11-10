@@ -30,6 +30,8 @@ let depth = 10;
 let repoFileSystems = {};
 let fs = new LightningFS('fs');
 let consoleDotLoggingOn = true;
+let version;
+let additionalText;
 
 function consoleDotLog(...parameters) {
   if (!consoleDotLoggingOn) return;
@@ -167,6 +169,10 @@ async function setUrl(_url) {
   fs = repoFileSystems[repoName];
 }
 
+async function setAdditionalRepoText(_version = '', _additionalText = '') {
+  (_version !== '') && (version = _version);
+  (_additionalText !== '') && (additionalText = _additionalText);
+}
 
 async function setRef(_ref) {
   ref = _ref;
@@ -443,7 +449,9 @@ async function doFetch(args) {
 async function isSync() {
   try{  
     const localRef = await git.resolveRef({ fs, dir, ref: `refs/remotes/${remote}/${ref}` });
-    await doFetch({url});
+    consoleDotLog('lastRemoteCommit', 'localRef', localRef)
+
+    await doFetch({url,   depth: 1});
     let lastRemoteCommit = await readFile({filePath: dir + `/.git/refs/remotes/${remote}/${ref}`});
     if (lastRemoteCommit?.trim() === localRef?.trim()){
       consoleDotLog('lastRemoteCommit', lastRemoteCommit, 'localRef', localRef)
@@ -723,7 +731,11 @@ async function extractRepoAddress(url) {
   if (match) {
     let domain =  match[1];
     let repoName = match[2];
-    return (`${domain}/${repoName}`)
+    let result = (`${domain}/${repoName}`);
+    version && (result += `-${version}`);
+    additionalText && (result += `-${additionalText}`);
+    
+
   }
   return null;
 }

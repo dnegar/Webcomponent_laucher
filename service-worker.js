@@ -744,7 +744,9 @@ async function fastForward(args) {
         remote,
         corsProxy,
         ref,
-        singleBranch: true,
+        remoteref: ref,
+        forced: true,
+        singleBranch: false,
         onAuth() {
           return authenticate.fill();
         },

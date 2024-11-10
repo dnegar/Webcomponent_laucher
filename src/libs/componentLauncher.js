@@ -37,8 +37,8 @@ class componentLauncher extends HTMLElement {
         await workerThread.setDepth(10);
         await workerThread.setAuthParams(username, password);
         const cloneResult = await workerThread.doCloneAndStuff({ url: repoUrl });
-        console.log('cloneResult',cloneResult)
-        await workerThread.doFetch({});
+        await workerThread.isSync();
+        await workerThread.doFetch({url: repoUrl});
         if (cloneResult.message === 'exists'){
             await workerThread.pull({
                 url: repoUrl,

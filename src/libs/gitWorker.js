@@ -30,8 +30,6 @@ let depth = 10;
 let repoFileSystems = {};
 let fs = new LightningFS('fs');
 let consoleDotLoggingOn = true;
-let version;
-let additionalText;
 
 function consoleDotLog(...parameters) {
   if (!consoleDotLoggingOn) return;
@@ -167,11 +165,6 @@ async function setUrl(_url) {
   const repoName = await extractRepoAddress(url);
   initializeStore(repoName);
   fs = repoFileSystems[repoName];
-}
-
-async function setAdditionalRepoText(_version = '', _additionalText = '') {
-  (_version !== '') && (version = _version);
-  (_additionalText !== '') && (additionalText = _additionalText);
 }
 
 async function setRef(_ref) {
@@ -430,7 +423,7 @@ async function doFetch(args) {
   await setUrl(args.url);
   try {
     try {
-      await setFs(args.url);
+      await setFs(args);
       await fetchWithServiceWorker('fetch', args);
       return {success: true}
     } catch (error) {
@@ -732,10 +725,7 @@ async function extractRepoAddress(url) {
     let domain =  match[1];
     let repoName = match[2];
     let result = (`${domain}/${repoName}`);
-    version && (result += `-${version}`);
-    additionalText && (result += `-${additionalText}`);
-    
-
+    return result;
   }
   return null;
 }
@@ -776,7 +766,7 @@ async function initializeStore(repoName) {
   }
 }
 
-async function setFs(url) {
+async function setFs(args) {
   try{
       const repoName = await extractRepoAddress(url);
       await setUrl(url);
@@ -801,7 +791,7 @@ async function doCloneAndStuff(args) {
   try {
     let handleNoRefResult = true;
     if (!repoFileSystems[repoName]) {
-      await initializeStore(repoName);
+      await setFs(args);
     }
 
     fs = repoFileSystems[repoName];
@@ -1003,7 +993,7 @@ async function log(args) {
 async function push(args) {
   await setUrl(args.url);
   try {
-    await setFs(args.url);
+    await setFs(args);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('push', args);
@@ -1127,7 +1117,7 @@ async function mkdirRecursive(path) {
 async function pull(args) {
   await setUrl(args.url);
   try {
-    await setFs(args.url);
+    await setFs(args);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('pull', args); // Attempt to pull with the main branch
@@ -1145,7 +1135,7 @@ async function pull(args) {
 async function fastForward(args) {
   try {
     try {
-      await setFs(args.url);
+      await setFs(args);
       await fetchWithServiceWorker('fastForward', args);
       return {success: true}
     } catch (error) {
@@ -1321,43 +1311,43 @@ async function statusMapper(statusMatrix) {
 
 (async () => {
   portal.set("workerThread", {
-    setAuthParams,
-    setDir,
-    setRef,
-    setDepth,
-    setConfigs,
-    setRemote,
-    setUrl,
-    getUsername,
-    getEmail,
-    getRemoteUrl,
-    commit,
-    addToSetting,
+    addDot,
     addFile,
     addFileToStaging,
-    addDot,
-    doPushFile,
+    addRemote,
+    addToSetting,
+    checkoutBranch,
+    commit,
+    doCloneAndStuff,
+    doFetch,
     doPushAll,
+    doPushFile,
+    extractRepoAddress,
     fastForward,
+    getChangedFilesList,
+    getEmail,
+    getFileStoresFromDatabases,
+    getRemoteUrl,
+    getUsername,
+    init,
+    initRemoteRepo,
+    isSync,
+    listBranches,
+    listFiles,
+    log,
+    pull,
+    push,
+    readFile,
     readSettingsFile,
     removeAndPush,
-    init,
-    extractRepoAddress,
-    initRemoteRepo,
-    doCloneAndStuff,
-    listBranches,
-    log,
-    isSync,
-    addRemote,
-    push,
-    pull,
-    listFiles,
-    readFile,
-    writeFile,
-    getChangedFilesList,
-    getFileStoresFromDatabases,
-    checkoutBranch,
-    doFetch,
+    setAuthParams,
+    setConfigs,
+    setDepth,
+    setDir,
+    setRef,
+    setRemote,
+    setUrl,
+    writeFile,    
   });
 })();
 });

@@ -390,6 +390,7 @@ async function retryOperation(operation, args, maxRetries = 5) {
 
 async function clone(args) {
   return await retryOperation(async (args) => {
+    console.log('Entering clone function with arguments:', args);
 
     noMainErrorCounts.cloneCount ++;
     let cloneResult = {};

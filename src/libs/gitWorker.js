@@ -25,18 +25,25 @@ let username;
 let password;
 let ref = 'main';
 let url = '';
+let databaseName = null;
 let remote = 'origin';
 let depth = 10;
 let fs = new LightningFS('fs');
-let consoleDotLoggingOn = true;
+let consoleLoggingOn = true;
 
 function consoleDotLog(...parameters) {
-  if (!consoleDotLoggingOn) return;
+  if (!consoleLoggingOn) return;
 
   console.log(...parameters);
   //console.trace();
 }
 
+function consoleDotError(...parameters) {
+  if (!consoleLoggingOn) return;
+
+  console.error(...parameters);
+  //console.trace();
+}
 
 this.addEventListener("message", ({ data }) => consoleDotLog(data));
 
@@ -131,12 +138,12 @@ async function fetchWithServiceWorker(operation, args) {
           consoleDotLog('jsonResponse',jsonResponse)
           return jsonResponse;
       } catch (jsonError) {
-          console.error('Error parsing JSON response:', jsonError);
+          consoleDotError('Error parsing JSON response:', jsonError);
           throw new Error('Response is not valid JSON');
       }
 
   } catch (error) {
-      console.error('Fetch error:', error);
+      consoleDotError('Fetch error:', error);
       throw error;
   }
 }
@@ -161,6 +168,10 @@ async function setUrl(_url) {
     throw new Error("Invalid Git URL format.");
   }
   url = _url;
+}
+
+async function setDatabaseName(_databaseName) {
+  _databaseName && (databaseName = _databaseName);
 }
 
 async function setRef(_ref) {
@@ -193,9 +204,10 @@ async function setRemote(_remote) {
 }
 
 class DatabaseManager {
-  constructor(fs) {
+  constructor() {
     this.repoFileSystems = {};
     this.currentFs = null;
+    this.databaseName = null;
   }
 
   async setFs({ url, databaseName }) {
@@ -207,11 +219,10 @@ class DatabaseManager {
       }
 
       this.currentFs = this.repoFileSystems[repoName];
-      fs = this.currentFs;
       console.log('File system set for repo:', repoName);
       return this.currentFs;
     } catch (error) {
-      console.error('Error setting FS:', error);
+      consoleDotError('Error setting FS:', error);
     }
   }
 
@@ -247,7 +258,7 @@ class DatabaseManager {
       });
       consoleDotLog('Fs successfully wiped out ...')
     } catch (error) {
-        console.error("Error wiping file system:", error);
+        consoleDotError("Error wiping file system:", error);
         throw error; 
     }
   }
@@ -257,13 +268,107 @@ class DatabaseManager {
       const repoName = databaseName || await this.extractRepoAddress(url);
       return repoName;
     } catch(error) {
-      console.error('some error happend: ', error);
+      consoleDotError('some error happend: ', error);
     }
+  }
+
+  async deleteIndexedDB(databaseName) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(databaseName);
+      request.onsuccess = () => {
+        consoleDotLog(`Deleted database ${databaseName} successfully`);
+        resolve();
+      };
+      request.onerror = (event) => {
+        consoleDotError(`Error deleting database ${databaseName}:`, event);
+        reject(event);
+      };
+      request.onblocked = () => {
+        console.warn(`Delete database ${databaseName} blocked`);
+      };
+    });
+  }
+
+  async processDatabaseList(dbList) {
+    const fileStoreNames = [];
+
+    for (const db of dbList) {
+      const dbName = typeof db === 'string' ? db : db.name; // Normalize db name
+
+      const dbOpenRequest = await databaseManager.openDatabase(dbName);
+      const fileStores = dbOpenRequest.objectStoreNames;
+
+      // Filter stores starting with "fs_" and map them with their database name
+      const fsStores = Array.from(fileStores)
+        .filter((store) => store.startsWith('fs_'))
+        .map((store) => ({ database: dbName, fileStore: store }));
+
+      fileStoreNames.push(...fsStores);
+    }
+
+    return fileStoreNames;
+  }
+
+  async openDatabase(dbName) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(dbName);
+      
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        resolve(db);
+      };
+      
+      request.onerror = (event) => {
+        reject(`Error opening database ${dbName}: ${event.target.error}`);
+      };
+    });
+  }
+
+  async getFileStoresFromDatabases() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.webkitGetDatabaseNames
+        ? indexedDB.webkitGetDatabaseNames()
+        : indexedDB.databases
+        ? indexedDB.databases()
+        : null;
+
+      if (!request) {
+        reject('Your browser does not support retrieving a list of IndexedDB databases');
+        return;
+      }
+
+      if (request instanceof Promise) {
+        request
+          .then((dbList) => {
+            databaseManager.processDatabaseList(dbList)
+              .then((fileStoreNames) => resolve(fileStoreNames))
+              .catch((err) => reject(err));
+          })
+          .catch((err) => reject(err));
+      } else {
+        request.onsuccess = async (event) => {
+          const dbList = event.target.result;
+          try {
+            const fileStoreNames = await databaseManager.processDatabaseList(dbList);
+            resolve(fileStoreNames);
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        request.onerror = (event) => {
+          reject(`Error retrieving database list: ${event.target.error}`);
+        };
+      }
+    });
   }
 }
 
 const databaseManager = new DatabaseManager(fs);
 
+async function getFileStoresFromDatabases() {
+  databaseManager.getFileStoresFromDatabases();
+}
 //this function sets up the branch that user wants to do things on
 //gets branch name as parameter
 //if there are uncommited changes this function return 2 and abort
@@ -336,7 +441,7 @@ async function listRemoteBranches() {
   try {
     return await git.listBranches({ fs, dir, remote });
   } catch (error) {
-    console.error("Error in listBranches:", error);
+    consoleDotError("Error in listBranches:", error);
   }
 }
 
@@ -405,7 +510,7 @@ async function readSettingsFile(type = null, key = null) {
       return settingsData;
     }
     else{
-      console.error('The settings file dosen\'t exist yet!')
+      consoleDotError('The settings file dosen\'t exist yet!')
       return;    
     }
   } catch (err) {
@@ -491,30 +596,57 @@ async function doFetch(args) {
   await setUrl(args.url);
   try {
     try {
-      await setFs(args);
+      await databaseManager.setFs(args);
+      await setDatabaseName(args?.databaseName);
       await fetchWithServiceWorker('fetch', args);
       return {success: true}
     } catch (error) {
       throw error;
     }
   } catch (error) {
+    consoleDotError('some error happend while fetching: ', error);
     await handleDeleteCloseAndReclone(args);
     return {success: false}
   }
 }
 
+async function getLastRemoteCommit() {
+  try{
+    consoleDotLog('databaseNameremote', databaseName);
+    let lastRemoteCommit = await readFile({filePath: dir + `/.git/refs/remotes/${remote}/${ref}`});
+    return lastRemoteCommit?.trim();
+  }
+  catch(error){
+    consoleDotLog(
+      'some error happend while getting last remote commit: '
+    , error);
+  }
+}
+
+async function getLastLocalCommit() {
+  try{
+    consoleDotLog('databaseNamelocal', databaseName);
+    const localRef = await git.resolveRef({ fs, dir, ref: `refs/remotes/${remote}/${ref}` });
+    return localRef?.trim();
+  }
+  catch(error){
+    consoleDotLog(
+      'some error happend while getting last local commit: '
+    , error);
+  }
+}
 
 //isSync function checks if user's last local commit is equal to the
 //last remote commit or not, gets url as arguments
 //returns 1 if it is sync and 0 if it's not
 async function isSync() {
-  try{  
-    const localRef = await git.resolveRef({ fs, dir, ref: `refs/remotes/${remote}/${ref}` });
+  try{
+    const localRef = await getLastLocalCommit();
     consoleDotLog('lastRemoteCommit', 'localRef', localRef)
 
-    await doFetch({url,   depth: 1});
-    let lastRemoteCommit = await readFile({filePath: dir + `/.git/refs/remotes/${remote}/${ref}`});
-    if (lastRemoteCommit?.trim() === localRef?.trim()){
+    await doFetch({url,   depth: 1, databaseName});
+    let lastRemoteCommit = await getLastRemoteCommit();
+    if (lastRemoteCommit === localRef){
       consoleDotLog('lastRemoteCommit', lastRemoteCommit, 'localRef', localRef)
       return 1;
     }
@@ -578,7 +710,7 @@ async function handleNoRef(args) {
       return false;
     }
   } catch (error) {
-      console.error("Error handling no ref:", error);
+      consoleDotError("Error handling no ref:", error);
       throw error; 
   }
 }
@@ -619,117 +751,6 @@ async function init(){
   }
 }
 
-async function processDatabaseList(dbList) {
-  const fileStoreNames = [];
-
-  for (const db of dbList) {
-    const dbName = typeof db === 'string' ? db : db.name; // Normalize db name
-
-    const dbOpenRequest = await openDatabase(dbName);
-    const fileStores = dbOpenRequest.objectStoreNames;
-
-    // Filter stores starting with "fs_" and map them with their database name
-    const fsStores = Array.from(fileStores)
-      .filter((store) => store.startsWith('fs_'))
-      .map((store) => ({ database: dbName, fileStore: store }));
-
-    fileStoreNames.push(...fsStores);
-  }
-
-  return fileStoreNames;
-}
-
-// Helper function to open each IndexedDB database
-function openDatabase(dbName) {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName);
-    
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      resolve(db);
-    };
-    
-    request.onerror = (event) => {
-      reject(`Error opening database ${dbName}: ${event.target.error}`);
-    };
-  });
-}
-
-async function getFileStoresFromDatabases() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.webkitGetDatabaseNames
-      ? indexedDB.webkitGetDatabaseNames()
-      : indexedDB.databases
-      ? indexedDB.databases()
-      : null;
-
-    if (!request) {
-      reject('Your browser does not support retrieving a list of IndexedDB databases');
-      return;
-    }
-
-    if (request instanceof Promise) {
-      request
-        .then((dbList) => {
-          processDatabaseList(dbList)
-            .then((fileStoreNames) => resolve(fileStoreNames))
-            .catch((err) => reject(err));
-        })
-        .catch((err) => reject(err));
-    } else {
-      request.onsuccess = async (event) => {
-        const dbList = event.target.result;
-        try {
-          const fileStoreNames = await processDatabaseList(dbList);
-          resolve(fileStoreNames);
-        } catch (err) {
-          reject(err);
-        }
-      };
-
-      request.onerror = (event) => {
-        reject(`Error retrieving database list: ${event.target.error}`);
-      };
-    }
-  });
-}
-
-async function processDatabaseList(dbList) {
-  const fileStoreNames = [];
-
-  for (const db of dbList) {
-    const dbName = typeof db === 'string' ? db : db.name; // Normalize db name
-
-    const dbOpenRequest = await openDatabase(dbName);
-    const fileStores = dbOpenRequest.objectStoreNames;
-
-    // Filter stores starting with "fs_" and map them with their database name
-    const fsStores = Array.from(fileStores)
-      .filter((store) => store.startsWith('fs_'))
-      .map((store) => ({ database: dbName, fileStore: store }));
-
-    fileStoreNames.push(...fsStores);
-  }
-
-  return fileStoreNames;
-}
-
-// Helper function to open each IndexedDB database
-function openDatabase(dbName) {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName);
-    
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      resolve(db);
-    };
-    
-    request.onerror = (event) => {
-      reject(`Error opening database ${dbName}: ${event.target.error}`);
-    };
-  });
-}
-
 async function checkDirExists() {
   try {
 
@@ -745,7 +766,7 @@ async function checkDirExists() {
       consoleDotLog('Directory does not exist:', dir);
       return false; // Directory or file does not exist
     } else {
-      console.error('Error checking directory existence:', err);
+      consoleDotError('Error checking directory existence:', err);
       throw err; // Some other error occurred
     }
   }
@@ -763,6 +784,7 @@ async function doCloneAndStuff(args) {
     let handleNoRefResult = true;
     if (!databaseManager.repoFileSystems[repoName]) {
       await databaseManager.setFs(args);
+      await setDatabaseName(args?.databaseName);
     }
 
     databaseManager.currentFs = databaseManager.repoFileSystems[repoName];
@@ -793,7 +815,7 @@ async function doCloneAndStuff(args) {
     }
     return ({handleNoRefResult, message: 'notExist', success: true});
   } catch (error) {
-    consoleDotLog('some error happend while doCloneAndStuff: ', error);
+    consoleDotError('some error happend while doCloneAndStuff: ', error);
     await handleDeleteCloseAndReclone(args);
     return {success: false}
   }
@@ -806,7 +828,7 @@ async function handleDeleteCloseAndReclone(args, retries = 3) {
     try {
       console.log(`Attempt ${attempt} to delete and reclone...`);
 
-      await deleteIndexedDB(repoName);
+      await databaseManager.deleteIndexedDB(repoName);
 
       console.log('Trying to reclone the repository...');
       await doCloneAndStuff({ ...args, url: args.url });
@@ -815,32 +837,14 @@ async function handleDeleteCloseAndReclone(args, retries = 3) {
       return;
 
     } catch (error) {
-      console.error(`Error during delete, close, and reclone process for ${repoName} (Attempt ${attempt}):`, error);
+      consoleDotError(`Error during delete, close, and reclone process for ${repoName} (Attempt ${attempt}):`, error);
 
       if (attempt === retries) {
-        console.error(`All ${retries} attempts failed.`);
+        consoleDotError(`All ${retries} attempts failed.`);
         throw error;
       }
     }
   }
-}
-
-
-async function deleteIndexedDB(dbName) {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(dbName);
-    request.onsuccess = () => {
-      consoleDotLog(`Deleted database ${dbName} successfully`);
-      resolve();
-    };
-    request.onerror = (event) => {
-      console.error(`Error deleting database ${dbName}:`, event);
-      reject(event);
-    };
-    request.onblocked = () => {
-      console.warn(`Delete database ${dbName} blocked`);
-    };
-  });
 }
 
 //this function removes a dir and its subdirectories recursively from FS
@@ -865,7 +869,7 @@ async function removeDirRecursively(path) {
       }
     }
   } catch (error) {
-    console.error(`Error while removing directory contents: ${path}`, error);
+    consoleDotError(`Error while removing directory contents: ${path}`, error);
     throw error;
   }
 }
@@ -890,7 +894,7 @@ async function initializeLocalBranches() {
     })
   );
   } catch (error) {
-      console.error("Error initializing local branches:", error);
+      consoleDotError("Error initializing local branches:", error);
       throw error; // Re-throw to allow further handling if needed
   }
 }
@@ -900,7 +904,7 @@ async function clone(args) {
       cloneResult = await fetchWithServiceWorker('clone', args);
       return cloneResult;
   } catch (error) {
-      console.error("Some error happened while cloning:", error);
+      consoleDotError("Some error happened while cloning:", error);
       throw error;
   }
 }
@@ -926,7 +930,7 @@ async function remove(args) {
     })
     await removeDirRecursively(args.filePath);
   } catch (error) {
-    console.error("Error while removing the file:", error);
+    consoleDotError("Error while removing the file:", error);
   }
 }
 
@@ -935,7 +939,7 @@ async function unlink(filePath) {
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
-    console.error("Error occured while unlinking:", error);
+    consoleDotError("Error occured while unlinking:", error);
   }
 }
 
@@ -949,13 +953,13 @@ async function log(args) {
     return logResult;
 
   } catch (error) {
-    console.error("Error in log:", error);
+    consoleDotError("Error in log:", error);
 
     if (error && typeof error === 'object' && Object.keys(error).length > 0) {
-      console.error('Error properties:', Object.keys(error));
-      console.error('Full error object:', JSON.stringify(error, null, 2));
+      consoleDotError('Error properties:', Object.keys(error));
+      consoleDotError('Full error object:', JSON.stringify(error, null, 2));
     } else {
-      console.error('An unknown error occurred, and no additional error details are available.');
+      consoleDotError('An unknown error occurred, and no additional error details are available.');
     }
 
     throw new Error('An unknown error occurred during the log operation');
@@ -967,6 +971,7 @@ async function push(args) {
   await setUrl(args.url);
   try {
     await databaseManager.setFs(args);
+    await setDatabaseName(args?.databaseName);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('push', args);
@@ -975,6 +980,7 @@ async function push(args) {
       throw error;
     }
   } catch (error) {
+    consoleDotError('some error happend while pushing: ', error);
     await handleDeleteCloseAndReclone(args);
     return {success: false}
   }
@@ -990,7 +996,7 @@ async function setUsername(args) {
       value: args.username
     })
   } catch (error) {
-    console.error('An error occurred while setting user name:', error);
+    consoleDotError('An error occurred while setting user name:', error);
   }
 }
 
@@ -1004,7 +1010,7 @@ async function setEmail(args) {
       value: args.email
     })
   } catch (error) {
-    console.error('An error occurred while setting email:', error);
+    consoleDotError('An error occurred while setting email:', error);
   }
 }
 
@@ -1018,7 +1024,7 @@ async function getEmail() {
     consoleDotLog(email);
     return email;
   } catch (error) {
-    console.error('An error occurred while getting email:', error);
+    consoleDotError('An error occurred while getting email:', error);
   }
 }
 
@@ -1033,7 +1039,7 @@ async function getUsername() {
     consoleDotLog(username);
     return username;
   } catch (error) {
-    console.error('An error occurred while getting username:', error);
+    consoleDotError('An error occurred while getting username:', error);
   }
 }
 
@@ -1047,7 +1053,7 @@ async function getRemoteUrl() {
     consoleDotLog(remoteUrl);
     return remoteUrl;
   } catch (error) {
-    console.error('An error occurred while getting remote url:', error);
+    consoleDotError('An error occurred while getting remote url:', error);
   }
 }
 
@@ -1057,7 +1063,7 @@ async function setConfigs(args) {
     await setUsername(args);
     await setEmail(args);
   } catch (error) {
-    console.error('An error occurred while setting configs:', error);
+    consoleDotError('An error occurred while setting configs:', error);
   } 
 }
 
@@ -1078,7 +1084,7 @@ async function mkdirRecursive(path) {
       } catch (error) {
           if (error.code === 'EEXIST') {
           } else {
-              console.error(`Error creating directory: ${currentPath}`, error);
+              consoleDotError(`Error creating directory: ${currentPath}`, error);
           }
       }
   }
@@ -1091,6 +1097,7 @@ async function pull(args) {
   await setUrl(args.url);
   try {
     await databaseManager.setFs(args);
+    await setDatabaseName(args?.databaseName);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('pull', args); // Attempt to pull with the main branch
@@ -1099,6 +1106,7 @@ async function pull(args) {
       throw error;
     }
   } catch (error) {
+    consoleDotError('some error happend while pulling: ', error);
     await handleDeleteCloseAndReclone(args);
     return {success: false}
   }
@@ -1109,6 +1117,7 @@ async function fastForward(args) {
   try {
     try {
       await databaseManager.setFs(args);
+      await setDatabaseName(args?.databaseName);
       await fetchWithServiceWorker('fastForward', args);
       return {success: true}
     } catch (error) {
@@ -1131,7 +1140,7 @@ async function addFile(args) {
       filepath: filePath
     });
   } catch (error) {
-    console.error('An error occurred while adding the file(s):', error);
+    consoleDotError('An error occurred while adding the file(s):', error);
   }
 }
 
@@ -1144,7 +1153,7 @@ async function addDot() {
       await addFile({filePath: filePath});
     }
   } catch (error) {
-    console.error('Error adding all changed files:', error);
+    consoleDotError('Error adding all changed files:', error);
   }
 }
 
@@ -1154,7 +1163,7 @@ async function addFileToStaging(args) {
     await writeFile(args);
     await addFile(args);
   } catch (error) {
-    console.error('Error adding file to staging area:', error);
+    consoleDotError('Error adding file to staging area:', error);
   } 
 }
 
@@ -1181,7 +1190,7 @@ async function readFile(args) {
   try {
     return await fs.promises.readFile(args.filePath, 'utf8');
   } catch (error) {
-    console.error('Error reading file:', error);
+    consoleDotError('Error reading file:', error);
   }
 }
 
@@ -1212,7 +1221,7 @@ async function listFiles(filePath = dir) {
     consoleDotLog(result);
     return result;
   } catch (error) {
-    console.error('Error listing files:', error);
+    consoleDotError('Error listing files:', error);
     throw error; 
   }
 }
@@ -1225,7 +1234,7 @@ async function writeFile(args) {
     await fs.promises.writeFile(args.filePath, args.fileContents, 'utf8');
 
   } catch (error) {
-    console.error('an error happend while writing to file:', error);
+    consoleDotError('an error happend while writing to file:', error);
   }
 }
 
@@ -1278,7 +1287,7 @@ async function statusMapper(statusMatrix) {
     consoleDotLog(resultObject)
     return resultObject;
   } catch (error) {
-    console.error('Error getting changed files list:', error);
+    consoleDotError('Error getting changed files list:', error);
   }
 }
 
@@ -1299,6 +1308,8 @@ async function statusMapper(statusMatrix) {
     getChangedFilesList,
     getEmail,
     getFileStoresFromDatabases,
+    getLastRemoteCommit,
+    getLastLocalCommit,
     getRemoteUrl,
     getUsername,
     init,
@@ -1314,6 +1325,7 @@ async function statusMapper(statusMatrix) {
     removeAndPush,
     setAuthParams,
     setConfigs,
+    setDatabaseName,
     setDepth,
     setDir,
     setRef,

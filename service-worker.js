@@ -888,10 +888,8 @@ async function doFetch(args) {
     await mutex.lock();
     try {
       await databaseManager.setFs(args);
-      // Log entry into the function
       console.log('Entering doFetch function with arguments:', args);
 
-      // Ensure `ref` is defined
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }

@@ -27,7 +27,6 @@ let ref = 'main';
 let url = '';
 let remote = 'origin';
 let depth = 10;
-let repoFileSystems = {};
 let fs = new LightningFS('fs');
 let consoleDotLoggingOn = true;
 
@@ -35,7 +34,7 @@ function consoleDotLog(...parameters) {
   if (!consoleDotLoggingOn) return;
 
   console.log(...parameters);
-  console.trace();
+  //console.trace();
 }
 
 
@@ -162,9 +161,6 @@ async function setUrl(_url) {
     throw new Error("Invalid Git URL format.");
   }
   url = _url;
-  const repoName = await extractRepoAddress(url);
-  initializeStore(repoName);
-  fs = repoFileSystems[repoName];
 }
 
 async function setRef(_ref) {
@@ -195,6 +191,78 @@ async function setRemote(_remote) {
   remote = _remote;
   await self.setRemote();
 }
+
+class DatabaseManager {
+  constructor(fs) {
+    this.repoFileSystems = {};
+    this.currentFs = null;
+  }
+
+  async setFs({ url, databaseName }) {
+    try {
+      const repoName = databaseName || await this.extractRepoAddress(url);
+
+      if (!this.repoFileSystems[repoName]) {
+        await this.initializeStore(repoName);
+      }
+
+      this.currentFs = this.repoFileSystems[repoName];
+      fs = this.currentFs;
+      console.log('File system set for repo:', repoName);
+      return this.currentFs;
+    } catch (error) {
+      console.error('Error setting FS:', error);
+    }
+  }
+
+  async initializeStore(repoName) {
+    if (!this.repoFileSystems[repoName]) {
+      this.repoFileSystems[repoName] = new LightningFS(repoName, {
+        fileStoreName: `fs_${repoName}`,
+        wipe: false,
+      });
+      console.log(`Initialized file system for ${repoName}`);
+    }
+  }
+
+  async extractRepoAddress(url) {
+    const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
+    const match = url.match(regex);
+    if (match) {
+      let domain = match[1];
+      let repoName = match[2];
+      return `${domain}/${repoName}`;
+    }
+    return null;
+  }
+
+  //wipes fs
+  async wipeFs({url, databaseName}) {
+    try {
+      const databaseName = this.getDatabaseName({ url, databaseName });
+      consoleDotLog('wiping garbage fs ...')
+      this.repoFileSystems[databaseName] = new LightningFS(databaseName, {
+        fileStoreName: `fs_${databaseName}`,
+        wipe: true,
+      });
+      consoleDotLog('Fs successfully wiped out ...')
+    } catch (error) {
+        console.error("Error wiping file system:", error);
+        throw error; 
+    }
+  }
+
+  async getDatabaseName({ url, databaseName }) {
+    try {
+      const repoName = databaseName || await this.extractRepoAddress(url);
+      return repoName;
+    } catch(error) {
+      console.error('some error happend: ', error);
+    }
+  }
+}
+
+const databaseManager = new DatabaseManager(fs);
 
 //this function sets up the branch that user wants to do things on
 //gets branch name as parameter
@@ -500,22 +568,6 @@ async function listRemotes() {
   });
 }
 
-//wipes fs
-async function wipeFs(repoName) {
-  try {
-    consoleDotLog('wiping garbage fs ...')
-    repoFileSystems[repoName] = new LightningFS(repoName, {
-      fileStoreName: `fs_${repoName}`,
-      wipe: true,
-    });
-    consoleDotLog('Fs successfully wiped out ...')
-  } catch (error) {
-      console.error("Error wiping file system:", error);
-      throw error; 
-  }
-}
-
-
 //args are remote and url
 async function handleNoRef(args) {
   try {
@@ -543,7 +595,6 @@ async function initRemoteRepo(args){
     else{
       filePath = dir + '/' + 'README.md'
     }
-    await wipeFs();
     await init();
     await writeFile({filePath: filePath, fileContents: fileContents});
     await addFile({filePath: filePath});
@@ -568,45 +619,6 @@ async function init(){
   }
 }
 
-async function getFileStoresFromDatabases() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.webkitGetDatabaseNames
-      ? indexedDB.webkitGetDatabaseNames()
-      : indexedDB.databases
-      ? indexedDB.databases()
-      : null;
-
-    if (!request) {
-      reject('Your browser does not support retrieving a list of IndexedDB databases');
-      return;
-    }
-
-    if (request instanceof Promise) {
-      request
-        .then((dbList) => {
-          processDatabaseList(dbList)
-            .then((fileStoreNames) => resolve(fileStoreNames))
-            .catch((err) => reject(err));
-        })
-        .catch((err) => reject(err));
-    } else {
-      request.onsuccess = async (event) => {
-        const dbList = event.target.result;
-        try {
-          const fileStoreNames = await processDatabaseList(dbList);
-          resolve(fileStoreNames);
-        } catch (err) {
-          reject(err);
-        }
-      };
-
-      request.onerror = (event) => {
-        reject(`Error retrieving database list: ${event.target.error}`);
-      };
-    }
-  });
-}
-
 async function processDatabaseList(dbList) {
   const fileStoreNames = [];
 
@@ -716,18 +728,6 @@ function openDatabase(dbName) {
       reject(`Error opening database ${dbName}: ${event.target.error}`);
     };
   });
-}
-
-async function extractRepoAddress(url) {
-  const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
-  const match = url.match(regex);
-  if (match) {
-    let domain =  match[1];
-    let repoName = match[2];
-    let result = (`${domain}/${repoName}`);
-    return result;
-  }
-  return null;
 }
 
 async function checkDirExists() {
@@ -751,50 +751,22 @@ async function checkDirExists() {
   }
 }
 
-async function initializeStore(repoName) {
-
-  try{
-    if (!repoFileSystems[repoName]) {
-        repoFileSystems[repoName] = new LightningFS(repoName, {
-        fileStoreName: `fs_${repoName}`,
-        wipe: false, // Set to true if you want to clear the store each time
-      });
-      consoleDotLog(`Initialized file system for ${repoName}`);
-    }
-  }catch(error){
-    console.error('An error occured: ', error);
-  }
-}
-
-async function setFs(args) {
-  try{
-      const repoName = await extractRepoAddress(url);
-      await setUrl(url);
-      if (!repoFileSystems[repoName]) {
-        await initializeStore(repoName);
-      }
-      fs = repoFileSystems[repoName];
-      consoleDotLog('repo fs ', repoName)
-  }catch(error){
-      console.error('some error happend while setting FS: ', error);
-  }
-}
-
 //returns false if the repo is not initiated yet, then you can init by using initRemoteRepo()
 //parameters are url, remote, ...
 //you can change depth by using setDepth function
 async function doCloneAndStuff(args) {
   let useNetwork = false;
-  const repoName = await extractRepoAddress(args.url);
-  consoleDotLog('doclone url ', args.url)
+  const repoName = await databaseManager.getDatabaseName(args);
+  consoleDotLog('doclone repoName ', repoName)
   await setUrl(args.url);
   try {
     let handleNoRefResult = true;
-    if (!repoFileSystems[repoName]) {
-      await setFs(args);
+    if (!databaseManager.repoFileSystems[repoName]) {
+      await databaseManager.setFs(args);
     }
 
-    fs = repoFileSystems[repoName];
+    databaseManager.currentFs = databaseManager.repoFileSystems[repoName];
+    fs = databaseManager.currentFs;
 
     let dirExists = await checkDirExists();
     if (dirExists && !useNetwork) {
@@ -821,13 +793,14 @@ async function doCloneAndStuff(args) {
     }
     return ({handleNoRefResult, message: 'notExist', success: true});
   } catch (error) {
+    consoleDotLog('some error happend while doCloneAndStuff: ', error);
     await handleDeleteCloseAndReclone(args);
     return {success: false}
   }
 }
 
 async function handleDeleteCloseAndReclone(args, retries = 3) {
-  const repoName = await extractRepoAddress(args.url);
+  const repoName = await databaseManager.getDatabaseName(args);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -993,7 +966,7 @@ async function log(args) {
 async function push(args) {
   await setUrl(args.url);
   try {
-    await setFs(args);
+    await databaseManager.setFs(args);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('push', args);
@@ -1117,7 +1090,7 @@ async function mkdirRecursive(path) {
 async function pull(args) {
   await setUrl(args.url);
   try {
-    await setFs(args);
+    await databaseManager.setFs(args);
     await setConfigs(args);
     try {
       await fetchWithServiceWorker('pull', args); // Attempt to pull with the main branch
@@ -1135,7 +1108,7 @@ async function pull(args) {
 async function fastForward(args) {
   try {
     try {
-      await setFs(args);
+      await databaseManager.setFs(args);
       await fetchWithServiceWorker('fastForward', args);
       return {success: true}
     } catch (error) {
@@ -1322,7 +1295,6 @@ async function statusMapper(statusMatrix) {
     doFetch,
     doPushAll,
     doPushFile,
-    extractRepoAddress,
     fastForward,
     getChangedFilesList,
     getEmail,

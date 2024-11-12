@@ -39,14 +39,7 @@ class componentLauncher extends HTMLElement {
         const d = await workerThread.getFileStoresFromDatabases();
         console.log('asdfasdf', d)
         const cloneResult = await workerThread.doCloneAndStuff({ url: repoUrl, databaseName: 'myDB' });
-        const isSync = await workerThread.isSync();
-        if (cloneResult.message === 'exists'){
-            !isSync && await workerThread.pull({
-                url: repoUrl,
-                username: username,
-                email: 'wc@example.com',
-            });
-        }        
+
         const content = await workerThread.readFile({ filePath: `/${fileName}` });
         return content;
     }

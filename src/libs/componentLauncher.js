@@ -90,7 +90,6 @@ class componentLauncher extends HTMLElement {
                     userResponse && (this.runWebComponent(updateData.content, attributes));
                     this.lastLocalCommit = updateData.lastRemoteCommit;
                 }
-                this.reloadComponent();
             } catch(error) {
                 console.error('This error happend while updateing: ', error)
             }

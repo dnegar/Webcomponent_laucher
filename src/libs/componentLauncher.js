@@ -145,11 +145,10 @@ class componentLauncher extends HTMLElement {
     }    
 
     extractComponentName(content) {
-        const match = '';
-        content && content.match(/customElements\.define\('([^']+)'/);
-
+        const match = content.match(/customElements\.define\(['"]([^'"]+)['"]/);
+        console.log('match', match);
         return match ? match[1] : null;
-    }
+    }    
 }
 
 customElements.define('component-launcher', componentLauncher);

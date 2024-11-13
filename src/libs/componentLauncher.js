@@ -38,14 +38,17 @@ class componentLauncher extends HTMLElement {
         this.runWebComponent(content, attributes);
     }
 
-    async getWebComponentFromRepo(repoUrl, username, password, fileName) {
+    async cloneWebComponent(repoUrl, username, password) {
         const workerThread = this.workerThread;
         await workerThread.setRef('main');
         await workerThread.setDepth(10);
         await workerThread.setAuthParams(username, password);
-        const d = await workerThread.getFileStoresFromDatabases();
-        console.log('asdfasdf', d)
-        await workerThread.doCloneAndStuff({ url: repoUrl});
+        await workerThread.doCloneAndStuff({ url: repoUrl });
+    }
+
+    async getWebComponentFromRepo(repoUrl, username, password, fileName) {
+        const workerThread = this.workerThread;
+        await this.cloneWebComponent(repoUrl, username, password);
         let content = await workerThread.readFile({ filePath: `/${fileName}` });
         this.lastLocalCommit = await workerThread.getLastLocalCommit();
         const lastRemoteCommit = await workerThread.getLastRemoteCommit();
@@ -73,8 +76,8 @@ class componentLauncher extends HTMLElement {
                     url: repoUrl,
                     databaseName: 'tempDB',
                 });
-                const content = await workerThread.readFile({ filePath: `/${fileName}` });
-                return {content, lastRemoteCommit};
+                // const content = await workerThread.readFile({ filePath: `/${fileName}` });
+                return lastRemoteCommit;
             }
         };
         return null;
@@ -83,12 +86,19 @@ class componentLauncher extends HTMLElement {
     async checkForUpdates(interval, repoUrl, username, password, attributes, fileName) {
         this.updateInterval = setInterval(async () => {
             try {
-                const updateData = await this.checkForUpdatesLogic(repoUrl, username, password, fileName);
-                if (updateData) {
+                const lastRemoteCommit = await this.checkForUpdatesLogic(repoUrl, username, password, fileName);
+                if (lastRemoteCommit) {
                     const userResponse = window.confirm("A new update is ready, do you want to update now?");
-                    console.log('updateData', updateData)
-                    userResponse && (this.runWebComponent(updateData.content, attributes));
-                    this.lastLocalCommit = updateData.lastRemoteCommit;
+                    console.log('repoUrl', repoUrl)
+                    if (userResponse){
+                        const databaseName = await this.workerThread.getDatabaseName({url: repoUrl});
+                        await this.workerThread.deleteIndexedDB(databaseName);
+                        console.log('databaseName', databaseName)
+                        await this.cloneWebComponent(repoUrl, username, password);
+                    }
+
+                    this.lastLocalCommit = lastRemoteCommit;
+                    window.alert('Successfully updated, you should reload the page.');
                 }
             } catch(error) {
                 console.error('This error happend while updateing: ', error)
@@ -97,9 +107,6 @@ class componentLauncher extends HTMLElement {
     }
 
     runWebComponent(content, attributes) {
-    
-        this.clearShadowDOM();
-
         const scriptElement = document.createElement('script');
         scriptElement.textContent = content;
         this.shadowRoot.appendChild(scriptElement);
@@ -124,18 +131,6 @@ class componentLauncher extends HTMLElement {
         console.log('match', match[1])
 
         return match ? match[1] : null;
-    }
-
-    
-    clearShadowDOM() {
-        console.log('first elem 1', this.shadowRoot)
-
-        while (this.shadowRoot.firstChild) {
-            console.log('first elem 2', this.shadowRoot.firstChild)
-          this.shadowRoot.removeChild(this.shadowRoot.firstChild);
-        }
-        console.log('first elem 3', this.shadowRoot)
-
     }
 }
 

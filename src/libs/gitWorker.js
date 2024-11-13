@@ -366,8 +366,17 @@ class DatabaseManager {
 
 const databaseManager = new DatabaseManager(fs);
 
+async function deleteIndexedDB(databaseName) {
+  await databaseManager.deleteIndexedDB(databaseName);
+}
+
+async function getDatabaseName(args) {
+  return await databaseManager.getDatabaseName(args);
+}
+
 async function getFileStoresFromDatabases() {
   databaseManager.getFileStoresFromDatabases();
+  return {success : true};
 }
 //this function sets up the branch that user wants to do things on
 //gets branch name as parameter
@@ -1300,12 +1309,14 @@ async function statusMapper(statusMatrix) {
     addToSetting,
     checkoutBranch,
     commit,
+    deleteIndexedDB,
     doCloneAndStuff,
     doFetch,
     doPushAll,
     doPushFile,
     fastForward,
     getChangedFilesList,
+    getDatabaseName,
     getEmail,
     getFileStoresFromDatabases,
     getLastRemoteCommit,

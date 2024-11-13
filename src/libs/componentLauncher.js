@@ -47,13 +47,30 @@ class componentLauncher extends HTMLElement {
     }
 
     async getWebComponentFromRepo(repoUrl, username, password, fileName) {
-        const workerThread = this.workerThread;
-        await this.cloneWebComponent(repoUrl, username, password);
-        let content = await workerThread.readFile({ filePath: `/${fileName}` });
-        this.lastLocalCommit = await workerThread.getLastLocalCommit();
-        const lastRemoteCommit = await workerThread.getLastRemoteCommit();
-        console.log('lastRemoteCommit getweb', lastRemoteCommit)
-        return content;
+        try{
+            const workerThread = this.workerThread;
+            await this.cloneWebComponent(repoUrl, username, password);
+            let content = await workerThread.readFile({ filePath: `/${fileName}` });
+            if (content === false) {
+                const databaseName = await this.workerThread.getDatabaseName({url: repoUrl});
+                await this.workerThread.deleteIndexedDB(databaseName);
+                console.log('trying to delete database and reclone!');
+                await this.cloneWebComponent(repoUrl, username, password);
+                console.log(1000, fileName, repoUrl)
+                content = await workerThread.readFile({ filePath: `/${fileName}` });
+            }
+            this.lastLocalCommit = await workerThread.getLastLocalCommit();
+            const lastRemoteCommit = await workerThread.getLastRemoteCommit();
+            console.log('lastRemoteCommit getweb', lastRemoteCommit)
+            console.log('content',content)
+            return content;
+        } catch(error){
+            console.error('some error happend: ', error);
+            if (error.code === 'ENOENT') {
+                console.log('recloning');
+                await this.cloneWebComponent(repoUrl, username, password);
+            }
+        }
     }
 
     async checkForUpdatesLogic(repoUrl, username, password, fileName) {
@@ -110,8 +127,9 @@ class componentLauncher extends HTMLElement {
         const scriptElement = document.createElement('script');
         scriptElement.textContent = content;
         this.shadowRoot.appendChild(scriptElement);
-    
+        console.log('cont', content)
         const componentName = this.extractComponentName(content);
+        console.log('componentName',componentName)
         if (componentName) {
             const componentInstance = document.createElement(componentName);
     
@@ -127,8 +145,8 @@ class componentLauncher extends HTMLElement {
     }    
 
     extractComponentName(content) {
-        const match = content.match(/customElements\.define\('([^']+)'/);
-        console.log('match', match[1])
+        const match = '';
+        content && content.match(/customElements\.define\('([^']+)'/);
 
         return match ? match[1] : null;
     }

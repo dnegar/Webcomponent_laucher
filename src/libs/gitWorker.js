@@ -42,7 +42,7 @@ function consoleDotError(...parameters) {
   if (!consoleLoggingOn) return;
 
   console.error(...parameters);
-  //console.trace();
+  console.trace();
 }
 
 this.addEventListener("message", ({ data }) => consoleDotLog(data));
@@ -1200,6 +1200,7 @@ async function readFile(args) {
     return await fs.promises.readFile(args.filePath, 'utf8');
   } catch (error) {
     consoleDotError('Error reading file:', error);
+    return false;
   }
 }
 

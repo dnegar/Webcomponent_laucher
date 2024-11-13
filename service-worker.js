@@ -14,7 +14,6 @@ let ref = 'main';
 let corsProxy = 'http://localhost:3000'//'https://dnegar-proxy.liara.run';
 const http = GitHttp;
 let cache = {};
-let repoFileSystems = {};
 const useCacheForRepo = 0;
 let fs = new LightningFS('fs');
 let noMainErrorCounts = {
@@ -243,20 +242,78 @@ async function handleGitRequest(request) {
  
 }
 
-//wipes fs
-async function wipeFs(repoName) {
-  try {
-    console.log('wiping garbage fs ...')
-    repoFileSystems[repoName] = new LightningFS(repoName, {
-      fileStoreName: `fs_${repoName}`,
-      wipe: true,
-    });
-    console.log('Fs successfully wiped out ...')
-  } catch (error) {
-      console.error("Error wiping file system:", error);
-      throw error; 
+class DatabaseManager {
+  constructor(fs) {
+    this.repoFileSystems = {};
+    this.currentFs = null;
+  }
+
+  async setFs({ url, databaseName }) {
+    try {
+      const repoName = databaseName || await this.extractRepoAddress(url);
+
+      if (!this.repoFileSystems[repoName]) {
+        await this.initializeStore(repoName);
+      }
+
+      this.currentFs = this.repoFileSystems[repoName];
+      fs = this.currentFs;
+      console.log('File system set for repo:', repoName);
+      return this.currentFs;
+    } catch (error) {
+      console.error('Error setting FS:', error);
+    }
+  }
+
+  async initializeStore(repoName) {
+    if (!this.repoFileSystems[repoName]) {
+      this.repoFileSystems[repoName] = new LightningFS(repoName, {
+        fileStoreName: `fs_${repoName}`,
+        wipe: false,
+      });
+      console.log(`Initialized file system for ${repoName}`);
+    }
+  }
+
+  async extractRepoAddress(url) {
+    const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
+    const match = url.match(regex);
+    if (match) {
+      let domain = match[1];
+      let repoName = match[2];
+      return `${domain}/${repoName}`;
+    }
+    return null;
+  }
+
+  //wipes fs
+  async wipeFs({url, databaseName}) {
+    try {
+      const databaseName = this.getDatabaseName({ url, databaseName });
+      consoleDotLog('wiping garbage fs ...')
+      this.repoFileSystems[databaseName] = new LightningFS(databaseName, {
+        fileStoreName: `fs_${databaseName}`,
+        wipe: true,
+      });
+      consoleDotLog('Fs successfully wiped out ...')
+    } catch (error) {
+        console.error("Error wiping file system:", error);
+        throw error; 
+    }
+  }
+
+  async getDatabaseName({ url, databaseName }) {
+    try {
+      const repoName = databaseName || await this.extractRepoAddress(url);
+      return repoName;
+    } catch(error) {
+      console.error('some error happend: ', error);
+    }
   }
 }
+
+const databaseManager = new DatabaseManager(fs);
+
 
 async function deleteIndexedDB(dbName) {
   return new Promise((resolve, reject) => {
@@ -275,33 +332,12 @@ async function deleteIndexedDB(dbName) {
   });
 }
 
-async function extractRepoAddress(url) {
-  const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
-  const match = url.match(regex);
-  if (match) {
-    let domain =  match[1];
-    let repoName = match[2];
-    return (`${domain}/${repoName}`)
-  }
-  return null;
-}
-
 async function generateCacheKey(url) {
-  const { domain, path } = await extractRepoAddress(url);
+  const { domain, path } = await databaseManager.getDatabaseName(url);
   if (domain && path) {
     return `${domain}|${path}`;
   }
   return null;
-}
-
-async function initializeStore(repoName) {
-  // Initialize the file system for the repository
-  repoFileSystems[repoName] = new LightningFS(repoName, {
-    fileStoreName: `fs_${repoName}`,
-    wipe: false,
-  });
-
-  console.log(`Initialized file system for ${repoName}`);
 }
 
 async function gitReset({dir, ref, branch}) {
@@ -390,18 +426,19 @@ async function retryOperation(operation, args, maxRetries = 5) {
 
 async function clone(args) {
   return await retryOperation(async (args) => {
+    console.log('Entering clone function with arguments:', args);
 
     noMainErrorCounts.cloneCount ++;
     let cloneResult = {};
-    let repoName = await extractRepoAddress(args.url);
+    let repoName = await databaseManager.getDatabaseName(args);
     await mutex.lock();
     try {
         console.log('ref', ref)
-        if (!repoFileSystems[repoName]) {
-            await initializeStore(repoName);
+        if (!databaseManager.repoFileSystems[repoName]) {
+            await databaseManager.setFs(args);
         }
 
-        fs = repoFileSystems[repoName];
+        fs = databaseManager.repoFileSystems[repoName];
         cloneResult = await fetchCachedFileList(repoName);
         if (!cloneResult) {
             const result = await git.clone({
@@ -668,6 +705,7 @@ async function pull(args) {
     let pullResult = {};
     await mutex.lock();
     try {
+      await databaseManager.setFs(args);
       console.log('Entering pull function with arguments:', args);
 
       if (!ref) {
@@ -728,6 +766,7 @@ async function fastForward(args) {
     let ffResult = {};
     await mutex.lock();
     try {
+      await databaseManager.setFs(args);
       console.log('Entering fastForward function with arguments:', args);
 
       if (!ref) {
@@ -744,7 +783,9 @@ async function fastForward(args) {
         remote,
         corsProxy,
         ref,
-        singleBranch: true,
+        remoteref: ref,
+        forced: true,
+        singleBranch: false,
         onAuth() {
           return authenticate.fill();
         },
@@ -788,6 +829,7 @@ async function push(args) {
     let pushResult = {};
     await mutex.lock();
     try {
+      await databaseManager.setFs(args);
       console.log('Entering push function with arguments:', args);
 
       if (!ref) {
@@ -845,10 +887,9 @@ async function doFetch(args) {
     let fetchResult = {};
     await mutex.lock();
     try {
-      // Log entry into the function
+      await databaseManager.setFs(args);
       console.log('Entering doFetch function with arguments:', args);
 
-      // Ensure `ref` is defined
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }

@@ -1,0 +1,158 @@
+[
+    {
+      "persianName": "سیستان و بلوچستان",
+      "engName": "Sistan and Baluchestan",
+      "value": 2600000
+    },
+    {
+      "persianName": "تهران",
+      "engName": "Tehran",
+      "value": 87400000
+    },
+    {
+      "persianName": "یزد",
+      "engName": "Yazd",
+      "value": 1100000
+    },
+    {
+      "persianName": "زنجان",
+      "engName": "Zanjan",
+      "value": 1200000
+    },
+    {
+      "persianName": "خوزستان",
+      "engName": "Khuzestan",
+      "value": 4500000
+    },
+    {
+      "persianName": "کهگیلویه و بویراحمد",
+      "engName": "Kohgiluyeh and Boyer-Ahmad",
+      "value": 800000
+    },
+    {
+      "persianName": "کردستان",
+      "engName": "Kurdistan",
+      "value": 2000000
+    },
+    {
+      "persianName": "لرستان",
+      "engName": "Lorestan",
+      "value": 1700000
+    },
+    {
+      "persianName": "مرکزی",
+      "engName": "Markazi",
+      "value": 1500000
+    },
+    {
+      "persianName": "مازندران",
+      "engName": "Mazandaran",
+      "value": 3200000
+    },
+    {
+      "persianName": "قزوین",
+      "engName": "Qazvin",
+      "value": 2000000
+    },
+    {
+      "persianName": "قم",
+      "engName": "Qom",
+      "value": 1400000
+    },
+    {
+      "persianName": "سمنان",
+      "engName": "Semnan",
+      "value": 800000
+    },
+    {
+      "persianName": "گلستان",
+      "engName": "Golestan",
+      "value": 1800000
+    },
+    {
+      "persianName": "همدان",
+      "engName": "Hamadan",
+      "value": 1800000
+    },
+    {
+      "persianName": "هرمزگان",
+      "engName": "Hormozgan",
+      "value": 1800000
+    },
+    {
+      "persianName": "ایلام",
+      "engName": "Ilam",
+      "value": 600000
+    },
+    {
+      "persianName": "کرمان",
+      "engName": "Kerman",
+      "value": 3200000
+    },
+    {
+      "persianName": "کرمانشاه",
+      "engName": "Kermanshah",
+      "value": 1900000
+    },
+    {
+      "persianName": "خراسان شمالی",
+      "engName": "North Khorasan",
+      "value": 800000
+    },
+    {
+      "persianName": "خراسان رضوی",
+      "engName": "Razavi Khorasan",
+      "value": 6570000
+    },
+    {
+      "persianName": "خراسان جنوبی",
+      "engName": "South Khorasan",
+      "value": 800000
+    },
+    {
+      "persianName": "البرز",
+      "engName": "Alborz",
+      "value": 3300000
+    },
+    {
+      "persianName": "اردبیل",
+      "engName": "Ardabil",
+      "value": 2000000
+    },
+    {
+      "persianName": "آذربایجان شرقی",
+      "engName": "East Azerbaijan",
+      "value": 4000000
+    },
+    {
+      "persianName": "آذربایجان غربی",
+      "engName": "West Azerbaijan",
+      "value": 3800000
+    },
+    {
+      "persianName": "بوشهر",
+      "engName": "Bushehr",
+      "value": 1000000
+    },
+    {
+      "persianName": "چهارمحال و بختیاری",
+      "engName": "Chaharmahal and Bakhtiari",
+      "value": 900000
+    },
+    {
+      "persianName": "اصفهان",
+      "engName": "Isfahan",
+      "value": 5100000
+    },
+    {
+      "persianName": "فارس",
+      "engName": "Fars",
+      "value": 5000000
+    },
+    {
+      "persianName": "گیلان",
+      "engName": "Gilan",
+      "value": 2500000
+    }
+  ]
+  

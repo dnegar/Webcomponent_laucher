@@ -8,6 +8,7 @@ class componentLauncher extends HTMLElement {
         this.attachShadow({ mode: 'open' });
         this.workerThread;
         this.lastLocalCommit;
+        this.updatedAttributes;
     }
 
     async connectedCallback() {
@@ -20,7 +21,7 @@ class componentLauncher extends HTMLElement {
 
         await register();
         await this.initializeWorker(repoUrl, username, password, attributes, fileName);
-        this.checkForUpdates(interval ,repoUrl, username, password, attributes, fileName)
+        this.checkForUpdates(interval, repoUrl, username, password, this.updatedAttributes, fileName);
     }
 
     disconnectedCallback() {
@@ -29,13 +30,36 @@ class componentLauncher extends HTMLElement {
         }
     }
 
+    async applySettings(attributes) {
+        const settings = await this.workerThread.readSettingsFile('attributes'); // Read all settings for the type
+        
+        const updatedAttributes = { ...attributes, ...settings };
+    
+        for (const [key, value] of Object.entries(updatedAttributes)) {
+            if (typeof value === 'string' && value.startsWith('path:')) {
+                const filePath = value.slice(5).trim(); // Remove the 'path:' prefix
+                try {
+                    const fileContent = await this.workerThread.readFile({ filePath: filePath });
+                    updatedAttributes[key] = fileContent; // Replace value with the file content
+                } catch (error) {
+                    console.error(`Error reading file at ${filePath}:`, error);
+                    updatedAttributes[key] = null; // Set to null if file reading fails
+                }
+            }
+        }
+    
+        return updatedAttributes;
+    }
+    
+
     async initializeWorker(repoUrl, username, password, attributes, fileName) {
         const gitWorker = new Worker("/src/libs/gitWorker.js");
         const portal = new MagicPortal(gitWorker);
         this.workerThread = await portal.get("workerThread");
+        this.updatedAttributes = await this.applySettings(attributes);
 
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
-        this.runWebComponent(content, attributes);
+        this.runWebComponent(content, this.updatedAttributes);
     }
 
     async cloneWebComponent(repoUrl, username, password) {
@@ -139,7 +163,7 @@ class componentLauncher extends HTMLElement {
                     : value;
                 componentInstance.setAttribute(key, attributeValue);
             });
-    
+
             this.shadowRoot.appendChild(componentInstance);
         }
     }    

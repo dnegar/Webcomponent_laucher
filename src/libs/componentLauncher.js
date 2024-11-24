@@ -47,7 +47,7 @@ class componentLauncher extends HTMLElement {
                 }
             }
         }
-    
+        
         return updatedAttributes;
     }
     
@@ -56,9 +56,9 @@ class componentLauncher extends HTMLElement {
         const gitWorker = new Worker("/src/libs/gitWorker.js");
         const portal = new MagicPortal(gitWorker);
         this.workerThread = await portal.get("workerThread");
-        this.updatedAttributes = await this.applySettings(attributes);
 
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
+        this.updatedAttributes = await this.applySettings(attributes);
         this.runWebComponent(content, this.updatedAttributes);
     }
 

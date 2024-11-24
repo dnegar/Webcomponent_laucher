@@ -30,6 +30,7 @@ let remote = 'origin';
 let depth = 10;
 let fs = new LightningFS('fs');
 let consoleLoggingOn = true;
+const gitConfigFilePath = '/settings';
 
 function consoleDotLog(...parameters) {
   if (!consoleLoggingOn) return;

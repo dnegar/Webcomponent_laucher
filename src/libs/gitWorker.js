@@ -9,6 +9,7 @@
 /* globals LightningFS git MagicPortal GitHttp */
 /* eslint-env worker */
 
+
 importScripts(
   './../libs/require.js',
 );
@@ -16,8 +17,9 @@ importScripts(
 require({
   baseUrl: "./../libs"
 },
-["require", "MagicPortal", "LightningFS", "myGitHttp", "IsomorphicGit"],
-function(require, MagicPortal, LightningFS, GitHttp, git) {
+
+["require", "MagicPortal", "LightningFS", "IsomorphicGit"],
+function(require, MagicPortal, LightningFS, git) {
 
 portal = new MagicPortal(this);
 let dir = '/';
@@ -30,7 +32,7 @@ let remote = 'origin';
 let depth = 10;
 let fs = new LightningFS('fs');
 let consoleLoggingOn = true;
-const gitConfigFilePath = '/settings';
+let gitConfigFilePath = '/settings';
 
 function consoleDotLog(...parameters) {
   if (!consoleLoggingOn) return;
@@ -219,9 +221,9 @@ class DatabaseManager {
         await this.initializeStore(repoName);
       }
 
-      this.currentFs = this.repoFileSystems[repoName];
-      console.log('File system set for repo:', repoName);
-      return this.currentFs;
+      this.currentFs = repoName;
+      console.log('File system set for repo:', repoName, this.repoFileSystems);
+      return {name: this.currentFs, fs: this.repoFileSystems[repoName]};
     } catch (error) {
       consoleDotError('Error setting FS:', error);
     }
@@ -233,17 +235,19 @@ class DatabaseManager {
         fileStoreName: `fs_${repoName}`,
         wipe: false,
       });
+      console.log('2000:', this.repoFileSystems[repoName]);
       console.log(`Initialized file system for ${repoName}`);
     }
   }
 
   async extractRepoAddress(url) {
+    consoleDotLog('urllll', url)
     const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
     const match = url.match(regex);
     if (match) {
-      let domain = match[1];
-      let repoName = match[2];
-      return `${domain}/${repoName}`;
+      let domain = match[1].replace('/', '-');
+      let repoName = match[2].replace('/', '-');
+      return `${domain}-${repoName}`;
     }
     return null;
   }
@@ -274,18 +278,19 @@ class DatabaseManager {
   }
 
   async deleteIndexedDB(databaseName) {
+    const parsedDatabaseName = this.getDatabaseName({ url, databaseName });
     return new Promise((resolve, reject) => {
-      const request = indexedDB.deleteDatabase(databaseName);
+      const request = indexedDB.deleteDatabase(parsedDatabaseName);
       request.onsuccess = () => {
-        consoleDotLog(`Deleted database ${databaseName} successfully`);
+        consoleDotLog(`Deleted database ${parsedDatabaseName} successfully`);
         resolve();
       };
       request.onerror = (event) => {
-        consoleDotError(`Error deleting database ${databaseName}:`, event);
+        consoleDotError(`Error deleting database ${parsedDatabaseName}:`, event);
         reject(event);
       };
       request.onblocked = () => {
-        console.warn(`Delete database ${databaseName} blocked`);
+        console.warn(`Delete database ${parsedDatabaseName} blocked`);
       };
     });
   }
@@ -296,7 +301,7 @@ class DatabaseManager {
     for (const db of dbList) {
       const dbName = typeof db === 'string' ? db : db.name; // Normalize db name
 
-      const dbOpenRequest = await databaseManager.openDatabase(dbName);
+      const dbOpenRequest = await this.openDatabase(dbName);
       const fileStores = dbOpenRequest.objectStoreNames;
 
       // Filter stores starting with "fs_" and map them with their database name
@@ -306,11 +311,12 @@ class DatabaseManager {
 
       fileStoreNames.push(...fsStores);
     }
-
+    consoleDotLog('entering procesDB' , fileStoreNames)
     return fileStoreNames;
   }
 
   async openDatabase(dbName) {
+    consoleDotLog('entering opendb')
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(dbName);
       
@@ -341,7 +347,7 @@ class DatabaseManager {
       if (request instanceof Promise) {
         request
           .then((dbList) => {
-            databaseManager.processDatabaseList(dbList)
+            this.processDatabaseList(dbList)
               .then((fileStoreNames) => resolve(fileStoreNames))
               .catch((err) => reject(err));
           })
@@ -350,7 +356,7 @@ class DatabaseManager {
         request.onsuccess = async (event) => {
           const dbList = event.target.result;
           try {
-            const fileStoreNames = await databaseManager.processDatabaseList(dbList);
+            const fileStoreNames = await this.processDatabaseList(dbList);
             resolve(fileStoreNames);
           } catch (err) {
             reject(err);
@@ -376,8 +382,15 @@ async function getDatabaseName(args) {
 }
 
 async function getFileStoresFromDatabases() {
-  databaseManager.getFileStoresFromDatabases();
-  return {success : true};
+  consoleDotLog('entering getFileStoresFromDatabases object')
+  const FileStoreNames = await databaseManager.getFileStoresFromDatabases();
+  return {success : true, data: FileStoreNames};
+}
+
+async function setFs(args) {
+  const result = await databaseManager.setFs(args);
+  fs = result.fs;
+  return result.name;
 }
 //this function sets up the branch that user wants to do things on
 //gets branch name as parameter
@@ -725,36 +738,13 @@ async function handleNoRef(args) {
   }
 }
 
-
-//gets fileContents, username, email, commitMessage as parameters
-async function initRemoteRepo(args){
-  try{
-    let fileContents = args.fileContents ?? '';
-    let filePath = ''
-    if (dir === '/'){
-      filePath = dir + 'README.md'
-    }
-    else{
-      filePath = dir + '/' + 'README.md'
-    }
-    await init();
-    await writeFile({filePath: filePath, fileContents: fileContents});
-    await addFile({filePath: filePath});
-    await commit({username: args.username, email: args.email, commitMessage: args.commitMessage});
-    await createBranch({ref})
-    await addRemote(args)
-  }
-  catch(error){
-  consoleDotLog('something went wrong while initing your remote repo: ', error)
-  }
-}
-
 async function init(){
   try{
     await git.init({
       fs,
       dir
     })
+    consoleDotLog('kiri')
   }
   catch(error){
   consoleDotLog('something went wrong while initing the repo: ', error)
@@ -782,7 +772,7 @@ async function checkDirExists() {
   }
 }
 
-//returns false if the repo is not initiated yet, then you can init by using initRemoteRepo()
+//returns false if the repo is not initiated yet
 //parameters are url, remote, ...
 //you can change depth by using setDepth function
 async function doCloneAndStuff(args) {
@@ -790,6 +780,8 @@ async function doCloneAndStuff(args) {
   const repoName = await databaseManager.getDatabaseName(args);
   consoleDotLog('doclone repoName ', repoName)
   await setUrl(args.url);
+  await setDepth(depth);
+
   try {
     let handleNoRefResult = true;
     if (!databaseManager.repoFileSystems[repoName]) {
@@ -857,11 +849,14 @@ async function handleDeleteCloseAndReclone(args, retries = 3) {
   }
 }
 
+async function isDirectory(path) {
+  const stat = await fs.promises.lstat(path);
+  return stat.isDirectory();
+}
 //this function removes a dir and its subdirectories recursively from FS
 async function removeDirRecursively(path) {
   try {
-    const stat = await fs.promises.stat(path);
-    if (!stat.isDirectory()) {        
+    if (!await isDirectory(path)) {        
       consoleDotLog(fullPath)
       await fs.promises.unlink(fullPath);
     }
@@ -869,8 +864,7 @@ async function removeDirRecursively(path) {
       const files = await fs.promises.readdir(path);
       for (const file of files) {
         const fullPath = `${path}/${file}`;
-        const stat = await fs.promises.stat(fullPath);
-        if (stat.isDirectory()) {
+        if (await isDirectory(fullPath)) {
           await removeDirRecursively(fullPath); // Recursively remove subdirectory contents
           await fs.promises.rmdir(fullPath); // Remove subdirectory
         } else {
@@ -1209,10 +1203,12 @@ async function readFile(args) {
 //and paths for values
 async function listFiles(filePath = dir) {
   try {
+    consoleDotLog(1000);
       let path = filePath
       let files = await fs.promises.readdir(filePath);
       let result = {};
 
+      consoleDotLog('files', files)
       for (const file of files) {
           if (path !== '/') {
             consoleDotLog('filePath',filePath)
@@ -1222,14 +1218,13 @@ async function listFiles(filePath = dir) {
             consoleDotLog('filePath',filePath)
             filePath = path + file;
           }
-          const stat = await fs.promises.lstat(filePath);
-          if (stat.isDirectory()) {
+          if (await isDirectory(filePath)) {
               result = Object.assign(await listFiles(filePath), result)
           } else {
               result[filePath] = file;
           }
     }
-    consoleDotLog(result);
+    consoleDotLog('result', result);
     return result;
   } catch (error) {
     consoleDotError('Error listing files:', error);
@@ -1326,7 +1321,7 @@ async function statusMapper(statusMatrix) {
     getRemoteUrl,
     getUsername,
     init,
-    initRemoteRepo,
+    isDirectory,
     isSync,
     listBranches,
     listFiles,
@@ -1341,6 +1336,7 @@ async function statusMapper(statusMatrix) {
     setDatabaseName,
     setDepth,
     setDir,
+    setFs,
     setRef,
     setRemote,
     setUrl,

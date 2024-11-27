@@ -15,6 +15,7 @@ let corsProxy = 'http://localhost:3000'//'https://dnegar-proxy.liara.run';
 const http = GitHttp;
 let cache = {};
 const useCacheForRepo = 0;
+let broadcastChannel;
 let fs = new LightningFS('fs');
 let noMainErrorCounts = {
   cloneCount: 0,
@@ -70,42 +71,47 @@ self.addEventListener('message', (event) => {
   }
 });
 
+self.broadcastChannelInitialized = false;
 
-const broadcastChannel = new BroadcastChannel('worker-channel');
+if (!self.broadcastChannelInitialized) {
+  broadcastChannel = new BroadcastChannel('worker-channel');
 
-broadcastChannel.onmessage = async function (event) {
-  const message = event.data;
-  console.log(message);
+  broadcastChannel.onmessage = async function (event) {
+    const message = event.data;
+    console.log(message);
 
-  try {
-    switch (message.operation) {
-      case 'setAuthParams':
-        await handleSetAuthParams(message.data);
-        break;
-      case 'setDir':
-        await handleSetDir(message.data);
-        break;
-      case 'setRepoDir':
-        await handleSetRepoDir(message.data);
-      case 'setDepth':
-        await handleSetDepth(message.data);
-        break;
-      case 'setRemote':
-        await handleSetRemote(message.data);
-        break;
-      case 'setRef':
-        await handleSetRef(message.data);
-        break;
-      default:
-        await exceptionHandler(message);
-        break;
+    try {
+      switch (message.operation) {
+        case 'setAuthParams':
+          await handleSetAuthParams(message.data);
+          break;
+        case 'setDir':
+          await handleSetDir(message.data);
+          break;
+        case 'setRepoDir':
+          await handleSetRepoDir(message.data);
+          break;
+        case 'setDepth':
+          await handleSetDepth(message.data);
+          break;
+        case 'setRemote':
+          await handleSetRemote(message.data);
+          break;
+        case 'setRef':
+          await handleSetRef(message.data);
+          break;
+        default:
+          await exceptionHandler(message);
+          break;
+      }
+    } catch (error) {
+      console.error(`${message.operation} failed`, error);
+      throw new Error(error.message);
     }
-  } catch (error) {
-    console.error(`${message.operation} failed`, error);
-    throw new Error(error.message);
-  }
-};
+  };
 
+  self.broadcastChannelInitialized = true;
+}
 
 async function exceptionHandler(message) {
   console.error('Unhandled message operation:', message.operation);
@@ -279,9 +285,9 @@ class DatabaseManager {
     const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
     const match = url.match(regex);
     if (match) {
-      let domain = match[1];
-      let repoName = match[2];
-      return `${domain}/${repoName}`;
+      let domain = match[1].replace('/', '-');
+      let repoName = match[2].replace('/', '-');;
+      return `${domain}-${repoName}`;
     }
     return null;
   }

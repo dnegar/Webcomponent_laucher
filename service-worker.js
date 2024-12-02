@@ -32,7 +32,7 @@ const URLS_TO_CACHE = [
   './src/libs/LightningFS.js',
   './src/libs/MagicPortal.js',
   './src/libs/require.js',
-  './src/worker/worker.js'
+  './src/libs/gitWorker.js'
 ];
 
 self.addEventListener('install', (event) => {

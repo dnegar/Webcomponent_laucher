@@ -55,7 +55,7 @@ class componentLauncher extends HTMLElement {
 async initializeWorker(repoUrl, username, password, attributes, fileName) {
     try {
         console.log('Initializing worker...');
-        const gitWorker = new Worker('./gitWorker.js');
+        const gitWorker = new Worker('./src/libs/gitWorker.js');
         console.log('Worker created:', gitWorker);
 
         const portal = new MagicPortal(gitWorker);

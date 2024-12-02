@@ -52,19 +52,30 @@ class componentLauncher extends HTMLElement {
     }
     
 
-    async initializeWorker(repoUrl, username, password, attributes, fileName) {
-        try{
-            const gitWorker = new Worker("./gitWorker.js");
-            const portal = new MagicPortal(gitWorker);
-            this.workerThread = await portal.get("workerThread");
-    
-            const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
-            this.updatedAttributes = await this.applySettings(attributes);
-            this.runWebComponent(content, this.updatedAttributes);
-        } catch (err) {
-            console.error('some error happened while initializing worker: ', err);
-        }
+async initializeWorker(repoUrl, username, password, attributes, fileName) {
+    try {
+        console.log('Initializing worker...');
+        const gitWorker = new Worker('./gitWorker.js');
+        console.log('Worker created:', gitWorker);
+
+        const portal = new MagicPortal(gitWorker);
+        console.log('MagicPortal initialized:', portal);
+
+        this.workerThread = await portal.get('workerThread');
+        console.log('Worker thread:', this.workerThread);
+
+        const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
+        console.log('Component content:', content);
+
+        this.updatedAttributes = await this.applySettings(attributes);
+        console.log('Updated attributes:', this.updatedAttributes);
+
+        this.runWebComponent(content, this.updatedAttributes);
+    } catch (err) {
+        console.error('Error during worker initialization:', err);
     }
+}
+
 
     async cloneWebComponent(repoUrl, username, password) {
         const workerThread = this.workerThread;

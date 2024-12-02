@@ -3,7 +3,7 @@ export async function register() {
     // Dynamically determine the base path (GitHub Pages repo name)
     const basePath = window.location.pathname.split('/')[1];
     const scopePath = basePath ? `/${basePath}/` : '/';
-
+    console.log ('scopePath', scopePath);
     navigator.serviceWorker
       .register('service-worker.js', { scope: scopePath }) // Dynamically set scope
       .then((registration) => {

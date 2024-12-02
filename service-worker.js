@@ -1,9 +1,9 @@
 /* eslint-env serviceworker */
 /* globals LightningFS git GitHttp */
 
-importScripts('/src/libs/isomorphicgit.js');
-importScripts('/src/libs/LightningFS.js');
-importScripts('/src/libs/GitHttp.js');
+importScripts('./src/libs/isomorphicgit.js');
+importScripts('./src/libs/LightningFS.js');
+importScripts('./src/libs/GitHttp.js');
 
 let username = '';
 let password = '';
@@ -25,15 +25,14 @@ let noMainErrorCounts = {
 };
 
 const CACHE_NAME = 'cache-v1';
-const OFFLINE_URL = '/offline.html';
+//const OFFLINE_URL = '/offline.html';
 const URLS_TO_CACHE = [
-  '/src/libs/GitHttp.js',
-  '/src/libs/isomorphicgit.js',
-  '/src/libs/LightningFS.js',
-  '/src/libs/MagicPortal.js',
-  '/src/libs/require.js',
-  '/src/worker/worker.js',
-  OFFLINE_URL
+  './src/libs/GitHttp.js',
+  './src/libs/isomorphicgit.js',
+  './src/libs/LightningFS.js',
+  './src/libs/MagicPortal.js',
+  './src/libs/require.js',
+  './src/worker/worker.js'
 ];
 
 self.addEventListener('install', (event) => {

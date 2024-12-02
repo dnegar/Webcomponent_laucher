@@ -16,7 +16,7 @@ importScripts(
 require({
   baseUrl: "./../libs"
 },
-["require", "MagicPortal", "LightningFS", "myGitHttp", "IsomorphicGit"],
+["require", "MagicPortal", "LightningFS", "myGitHttp", "isomorphicgit"],
 function(require, MagicPortal, LightningFS, GitHttp, git) {
 
 portal = new MagicPortal(this);

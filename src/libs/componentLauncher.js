@@ -21,6 +21,16 @@ class componentLauncher extends HTMLElement {
         const fileName = this.getAttribute('fileName');
         const interval = this.getAttribute('updateInterval');
 
+        const style = document.createElement('style');
+        style.textContent = `
+            .body {
+                font-size: 14px;
+                font-weight: 400;
+            }
+        `;
+        
+        this.shadowRoot.appendChild(style);
+
         await register();
         await this.initializeWorker(repoUrl, username, password, attributes, fileName);
         this.checkForUpdates(interval, repoUrl, username, password, this.updatedAttributes, fileName);
@@ -174,6 +184,7 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
             });
 
             this.shadowRoot.appendChild(componentInstance);
+
         }
     }    
 

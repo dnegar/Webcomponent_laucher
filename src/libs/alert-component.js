@@ -91,7 +91,7 @@ class AlertComponent extends HTMLElement {
                 <h2 id="title">Notification</h2>
                 <p id="message"></p>
                 <div class="buttons">
-                    <button id="ok" class="ok">بله</button>
+                    <button id="ok" class="ok">باشه</button>
                     <button id="cancel" class="cancel" style="display: none;">خیر</button>
                 </div>
             </div>

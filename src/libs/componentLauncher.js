@@ -52,15 +52,30 @@ class componentLauncher extends HTMLElement {
     }
     
 
-    async initializeWorker(repoUrl, username, password, attributes, fileName) {
-        const gitWorker = new Worker("/src/libs/gitWorker.js");
+async initializeWorker(repoUrl, username, password, attributes, fileName) {
+    try {
+        console.log('Initializing worker...');
+        const gitWorker = new Worker('./src/libs/gitWorker.js');
+        console.log('Worker created:', gitWorker);
+
         const portal = new MagicPortal(gitWorker);
-        this.workerThread = await portal.get("workerThread");
+        console.log('MagicPortal initialized:', portal);
+
+        this.workerThread = await portal.get('workerThread');
+        console.log('Worker thread:', this.workerThread);
 
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
+        console.log('Component content:', content);
+
         this.updatedAttributes = await this.applySettings(attributes);
+        console.log('Updated attributes:', this.updatedAttributes);
+
         this.runWebComponent(content, this.updatedAttributes);
+    } catch (err) {
+        console.error('Error during worker initialization:', err);
     }
+}
+
 
     async cloneWebComponent(repoUrl, username, password) {
         const workerThread = this.workerThread;

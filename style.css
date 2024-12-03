@@ -1,9 +1,6 @@
-html {
-  /* margin: 16px; */
-}
-
 body {
   margin: 16px;
+  font-family: 'Vazirmatn';font-size: 22px;
 }
 
 #content {

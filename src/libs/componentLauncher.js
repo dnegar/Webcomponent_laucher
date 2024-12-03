@@ -1,6 +1,7 @@
 // src/componentLauncher.js
 import MagicPortal from './MagicPortalES6.js';
 import {register} from "./serviceWorkerRegistration.js";
+import './alert-component.js';
 
 class componentLauncher extends HTMLElement {
     constructor() {
@@ -9,6 +10,7 @@ class componentLauncher extends HTMLElement {
         this.workerThread;
         this.lastLocalCommit;
         this.updatedAttributes;
+        this.alertComponent = document.createElement('custom-alert');
     }
 
     async connectedCallback() {
@@ -54,23 +56,14 @@ class componentLauncher extends HTMLElement {
 
 async initializeWorker(repoUrl, username, password, attributes, fileName) {
     try {
-        console.log('Initializing worker...');
+
         const gitWorker = new Worker('./src/libs/gitWorker.js');
-        console.log('Worker created:', gitWorker);
-
         const portal = new MagicPortal(gitWorker);
-        console.log('MagicPortal initialized:', portal);
-
         this.workerThread = await portal.get('workerThread');
-        console.log('Worker thread:', this.workerThread);
-
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
-        console.log('Component content:', content);
-
         this.updatedAttributes = await this.applySettings(attributes);
-        console.log('Updated attributes:', this.updatedAttributes);
-
         this.runWebComponent(content, this.updatedAttributes);
+        
     } catch (err) {
         console.error('Error during worker initialization:', err);
     }
@@ -144,8 +137,8 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
             try {
                 const lastRemoteCommit = await this.checkForUpdatesLogic(repoUrl, username, password, fileName);
                 if (lastRemoteCommit) {
-                    const userResponse = window.confirm("A new update is ready, do you want to update now?");
-                    console.log('repoUrl', repoUrl)
+                    const userResponse = await this.alertComponent.show('confirm', "یک نسخه‌ی جدید وجود دارد، آیا می‌خواهید به روزرسانی شود؟");
+                    console.log('userResponse', userResponse)
                     if (userResponse){
                         const databaseName = await this.workerThread.getDatabaseName({url: repoUrl});
                         await this.workerThread.deleteIndexedDB(databaseName);
@@ -154,7 +147,7 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
                     }
 
                     this.lastLocalCommit = lastRemoteCommit;
-                    window.alert('Successfully updated, you should reload the page.');
+                    this.alertComponent.show('alert', 'با موفقیت به روزرسانی شد، در بازدید بعدی شما این تغییرات اعمال می‌شود');
                 }
             } catch(error) {
                 console.error('This error happend while updateing: ', error)
@@ -165,6 +158,7 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
     runWebComponent(content, attributes) {
         const scriptElement = document.createElement('script');
         scriptElement.textContent = content;
+        this.shadowRoot.appendChild(this.alertComponent);
         this.shadowRoot.appendChild(scriptElement);
         console.log('cont', content)
         const componentName = this.extractComponentName(content);

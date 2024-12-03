@@ -17,8 +17,8 @@ importScripts(
 require({
   baseUrl: "./../libs"
 },
-["require", "MagicPortal", "LightningFS", "myGitHttp", "isomorphicgit"],
-function(require, MagicPortal, LightningFS, GitHttp, git) {
+["require", "MagicPortal", "LightningFS", "isomorphicgit"],
+function(require, MagicPortal, LightningFS, git) {
 
 portal = new MagicPortal(this);
 let dir = '/';
@@ -254,7 +254,7 @@ class DatabaseManager {
   //wipes fs
   async wipeFs({url, databaseName}) {
     try {
-      const databaseName = this.getDatabaseName({ url, databaseName });
+      const databaseName = await this.getDatabaseName({ url, databaseName });
       consoleDotLog('wiping garbage fs ...')
       this.repoFileSystems[databaseName] = new LightningFS(databaseName, {
         fileStoreName: `fs_${databaseName}`,
@@ -277,7 +277,7 @@ class DatabaseManager {
   }
 
   async deleteIndexedDB(databaseName) {
-    const parsedDatabaseName = this.getDatabaseName({ url, databaseName });
+    const parsedDatabaseName = await this.getDatabaseName({ url, databaseName });
     return new Promise((resolve, reject) => {
       const request = indexedDB.deleteDatabase(parsedDatabaseName);
       request.onsuccess = () => {

@@ -11,11 +11,11 @@
 
 
 importScripts(
-  './../libs/require.js',
+  './require.js',
 );
 
 require({
-  baseUrl: "./../libs"
+  baseUrl: "./"
 },
 ["require", "MagicPortal", "LightningFS", "isomorphicgit"],
 function(require, MagicPortal, LightningFS, git) {

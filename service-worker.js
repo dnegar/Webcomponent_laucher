@@ -8,7 +8,7 @@ importScripts('./src/libs/GitHttp.js');
 let username = '';
 let password = '';
 let dir = '/';
-let depth = '';
+let depth = 2;
 let remote = 'origin';
 let ref = 'main';
 let corsProxy = 'https://cors-proxy-temp.liara.run/'

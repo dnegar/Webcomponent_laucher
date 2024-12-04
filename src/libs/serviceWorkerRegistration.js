@@ -50,7 +50,7 @@ export async function register() {
 function updateReady(worker) {
   console.log('New update ready:', worker);
   // Notify the user about the update
-  if (confirm('A new version is available. Would you like to update?')) {
+  if (confirm('"یک نسخه‌ی جدید وجود دارد، آیا می‌خواهید به روزرسانی شود؟')) {
     // If the user agrees, skip waiting and activate the new worker
     worker.postMessage({ action: 'skipWaiting' });
 

@@ -45,8 +45,7 @@ class componentLauncher extends HTMLElement {
     async applySettings(attributes) {
         const settings = await this.workerThread.readSettingsFile('attributes'); // Read all settings for the type
         
-        const updatedAttributes = { ...attributes, ...settings };
-    
+        const updatedAttributes = { ...attributes, ...settings };    
         for (const [key, value] of Object.entries(updatedAttributes)) {
             if (typeof value === 'string' && value.startsWith('path:')) {
                 const filePath = value.slice(5).trim(); // Remove the 'path:' prefix
@@ -72,6 +71,8 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
         this.workerThread = await portal.get('workerThread');
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
         this.updatedAttributes = await this.applySettings(attributes);
+        const setSettingsAddresses = await this.workerThread.setSettingsAddresses();
+        console.log('setSettingsAddresses', setSettingsAddresses)
         this.runWebComponent(content, this.updatedAttributes);
         
     } catch (err) {
@@ -98,13 +99,10 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
                 await this.workerThread.deleteIndexedDB(databaseName);
                 console.log('trying to delete database and reclone!');
                 await this.cloneWebComponent(repoUrl, username, password);
-                console.log(1000, fileName, repoUrl)
                 content = await workerThread.readFile({ filePath: `/${fileName}` });
             }
             this.lastLocalCommit = await workerThread.getLastLocalCommit();
             const lastRemoteCommit = await workerThread.getLastRemoteCommit();
-            console.log('lastRemoteCommit getweb', lastRemoteCommit)
-            console.log('content',content)
             return content;
         } catch(error){
             console.error('some error happend: ', error);

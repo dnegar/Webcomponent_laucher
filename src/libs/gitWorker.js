@@ -29,6 +29,7 @@ let url = '';
 let databaseName = null;
 let remote = 'origin';
 let depth = 10;
+let settingsFileAddresses = {};
 let fs = new LightningFS('fs');
 let consoleLoggingOn = true;
 let gitConfigFilePath = '/settings';
@@ -89,6 +90,10 @@ self.setRemote = async function() {
 
 self.setRepoDir = async function() {
   await sendMessageToSW({ operation: 'setRepoDir', data: dir });
+}
+
+self.setSettingsAddresses = async function () {
+  await sendMessageToSW({ operation: 'setSettingsAddresses', data: settingsFileAddresses });
 }
 
 async function fetchWithServiceWorker(operation, args) {
@@ -203,6 +208,35 @@ async function setAuthParams(_username, _password) {
 async function setRemote(_remote) {
   remote = _remote;
   await self.setRemote();
+}
+
+async function setSettingsAddresses() {
+  try {
+      const libraries = await readSettingsFile('library'); 
+      consoleDotLog('libs', libraries)
+      const directories = await listFiles(); 
+      consoleDotLog('directories', directories)
+
+      if (libraries && directories){
+        for (const [fileName, filePath] of Object.entries(libraries)) {
+            if (!directories[filePath]) {
+                throw new Error(`File not found: ${filePath}`);
+            }
+
+            settingsFileAddresses[filePath] = {
+                fileName, 
+                filePath,
+            };
+            console.log(`File mapped: ${filePath}`);
+            await self.setSettingsAddresses();
+            return {success: true};
+        }
+      } else {
+        return {success: false};
+      }
+  } catch (error) {
+      console.error(`Error in setSettingsAddresses: ${error.message}`);
+  }
 }
 
 class DatabaseManager {
@@ -570,7 +604,6 @@ async function addToSetting(type, key, value) {
 
 
 }
-
 
 //This function gets a filePath and push it to a remote repository
 //gets username, email, commitMessage (optional), url and filePath as parameters 
@@ -1338,6 +1371,7 @@ async function statusMapper(statusMatrix) {
     setFs,
     setRef,
     setRemote,
+    setSettingsAddresses,
     setUrl,
     writeFile,    
   });

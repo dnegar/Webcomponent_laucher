@@ -50,14 +50,14 @@ export async function register() {
 function updateReady(worker) {
   console.log('New update ready:', worker);
   // Notify the user about the update
-  if (confirm('"یک نسخه‌ی جدید وجود دارد، آیا می‌خواهید به روزرسانی شود؟')) {
+  if (confirm("یک نسخه‌ی جدید وجود دارد، آیا می‌خواهید به روزرسانی شود؟")) {
     // If the user agrees, skip waiting and activate the new worker
     worker.postMessage({ action: 'skipWaiting' });
 
     // Reload the page to apply the new service worker
     worker.addEventListener('statechange', () => {
       if (worker.state === 'activated') {
-        window.location.reload();
+        setTimeout(() => window.location.reload(), 0);
       }
     });
   }

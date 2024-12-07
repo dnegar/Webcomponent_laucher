@@ -8,12 +8,13 @@ importScripts('./src/libs/GitHttp.js');
 let username = '';
 let password = '';
 let dir = '/';
-let depth = 2;
+let depth = 1;
 let remote = 'origin';
 let ref = 'main';
 let corsProxy = 'https://cors-proxy-temp.liara.run/'
-const http = GitHttp;
 let cache = {};
+let settingsFileAddresses = {};
+const http = GitHttp;
 const useCacheForRepo = 0;
 let broadcastChannel;
 let fs = new LightningFS('fs');
@@ -99,6 +100,9 @@ if (!self.broadcastChannelInitialized) {
         case 'setRef':
           await handleSetRef(message.data);
           break;
+        case 'setSettingsAddresses':
+          await handleSetSettingsFileAddresses(message.data);
+          break;
         default:
           await exceptionHandler(message);
           break;
@@ -171,18 +175,64 @@ async function handleSetRemote(data) {
   }
 }
 
+async function handleSetSettingsFileAddresses(data) {
+  if (settingsFileAddresses !== data) {
+    settingsFileAddresses = data;
+    broadcastChannel.postMessage({ operation: 'setSettingsAddresses', success: true });
+  } else{
+    broadcastChannel.postMessage({ operation: 'setSettingsAddresses', success: true });
+  };
+}
+
+async function fetchSettingsFileContent(pathname) {
+  try {
+    console.log('pathname',pathname)
+    const content = await fs.promises.readFile(pathname, 'utf8');
+    if (content) {
+      console.log('fetch content', content)
+      return content;
+    }
+  } catch (error) {
+    throw new Error('Unable to fetch file content: ' + error.message);
+  }
+}
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   console.log(`Fetching: ${url.pathname}`);
 
+  // If the request is for `/git`, handle it specifically
   if (url.pathname === '/git') {
     event.respondWith(handleGitRequest(event.request));
-  } else {
-    event.respondWith(fetch(event.request)
-    );
+    return; // Ensure no further processing happens for this request
   }
+
+  // Check if the pathname matches a settings file
+  if (settingsFileAddresses[url.pathname]) {
+    console.log('settingsFileAddresses', settingsFileAddresses, url.pathname);
+
+    event.respondWith(
+      fetchSettingsFileContent(url.pathname)
+        .then((content) =>
+          new Response(content, {
+            headers: { 'Content-Type': 'application/json' }, // Adjust content type as needed
+          })
+        )
+        .catch((error) => {
+          console.error('Error reading file:', error);
+          return new Response(JSON.stringify({ error: 'File not found or inaccessible' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        })
+    );
+    return; // Ensure no further processing happens for this request
+  }
+
+  // Fallback to default fetch for other requests
+  event.respondWith(fetch(event.request));
 });
+
 
 class Mutex {
   constructor() {

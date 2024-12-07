@@ -37,6 +37,9 @@ const URLS_TO_CACHE = [
   './src/libs/gitWorker.js'
 ];
 
+const basePath = window.location.pathname.split('/')[1];
+const scopePath = basePath ? `/${basePath}/` : '/';
+
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   console.log('install');
@@ -207,12 +210,18 @@ self.addEventListener('fetch', (event) => {
     return; // Ensure no further processing happens for this request
   }
 
-  // Check if the pathname matches a settings file
-  if (settingsFileAddresses[url.pathname]) {
-    console.log('settingsFileAddresses', settingsFileAddresses, url.pathname);
+  // Extract the scopePath and check if it matches any settings file address
+  const extractedPath = scopePath && url.pathname.startsWith(scopePath)
+    ? url.pathname.slice(scopePath.length - 1) // Retain the leading `/`
+    : url.pathname;
+
+  console.log(`Extracted path: ${extractedPath}`);
+
+  if (settingsFileAddresses[extractedPath]) {
+    console.log('Matched settings file path:', extractedPath);
 
     event.respondWith(
-      fetchSettingsFileContent(url.pathname)
+      fetchSettingsFileContent(extractedPath)
         .then((content) =>
           new Response(content, {
             headers: { 'Content-Type': 'application/json' }, // Adjust content type as needed
@@ -232,7 +241,6 @@ self.addEventListener('fetch', (event) => {
   // Fallback to default fetch for other requests
   event.respondWith(fetch(event.request));
 });
-
 
 class Mutex {
   constructor() {

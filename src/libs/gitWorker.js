@@ -33,6 +33,7 @@ let settingsFileAddresses = {};
 let fs = new LightningFS('fs');
 let consoleLoggingOn = true;
 let gitConfigFilePath = '/settings';
+let fsArgs = {};
 
 function consoleDotLog(...parameters) {
   if (!consoleLoggingOn) return;
@@ -86,6 +87,10 @@ self.setDepth = async function() {
 
 self.setRemote = async function() {
   await sendMessageToSW({ operation: 'setRemote', data: remote });
+};
+
+self.passFsArgs = async function() {
+  await sendMessageToSW({ operation: 'passFsArgs', data: fsArgs });
 };
 
 self.setRepoDir = async function() {
@@ -422,6 +427,8 @@ async function getFileStoresFromDatabases() {
 
 async function setFs(args) {
   const result = await databaseManager.setFs(args);
+  fsArgs = args;
+  await self.passFsArgs();
   fs = result.fs;
   return result.name;
 }

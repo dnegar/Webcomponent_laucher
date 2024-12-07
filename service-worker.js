@@ -106,6 +106,9 @@ if (!self.broadcastChannelInitialized) {
         case 'setSettingsAddresses':
           await handleSetSettingsFileAddresses(message.data);
           break;
+        case 'passFsArgs':
+          await handlePassFsArgs(message.data);
+          break;
         default:
           await exceptionHandler(message);
           break;
@@ -185,6 +188,15 @@ async function handleSetSettingsFileAddresses(data) {
   } else{
     broadcastChannel.postMessage({ operation: 'setSettingsAddresses', success: true });
   };
+}
+
+async function handlePassFsArgs(data) {
+  try {
+    databaseManager.setFs(data);
+    broadcastChannel.postMessage({ operation: 'passFsArgs', success: true });
+  } catch(error) {
+    console.error('some error happened in passFsArgs: ', error);
+  }
 }
 
 async function fetchSettingsFileContent(pathname) {

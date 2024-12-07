@@ -37,7 +37,7 @@ const URLS_TO_CACHE = [
   './src/libs/gitWorker.js'
 ];
 
-const basePath = window.location.pathname.split('/')[1];
+const basePath = new URL(self.registration.scope).pathname.split('/')[1];
 const scopePath = basePath ? `/${basePath}/` : '/';
 
 self.addEventListener('install', (event) => {

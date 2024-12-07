@@ -180,6 +180,8 @@ async function setUrl(_url) {
     throw new Error("Invalid Git URL format.");
   }
   url = _url;
+
+  databaseName ? (await setFs({url, databaseName})) : (await setFs({url}));
 }
 
 async function setDatabaseName(_databaseName) {

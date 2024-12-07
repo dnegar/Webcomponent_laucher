@@ -2,6 +2,7 @@
 import MagicPortal from './MagicPortalES6.js';
 import {register} from "./serviceWorkerRegistration.js";
 import './alert-component.js';
+import './LoadingSpinner.js';
 
 class componentLauncher extends HTMLElement {
     constructor() {
@@ -10,7 +11,12 @@ class componentLauncher extends HTMLElement {
         this.workerThread;
         this.lastLocalCommit;
         this.updatedAttributes;
+        this.loadingSpinner = document.createElement('loading-spinner');
         this.alertComponent = document.createElement('custom-alert');
+    }
+
+    async startLoading(startLoading) {
+        startLoading ? this.loadingSpinner.show() : this.loadingSpinner.hide();
     }
 
     async connectedCallback() {
@@ -30,6 +36,7 @@ class componentLauncher extends HTMLElement {
         `;
         
         this.shadowRoot.appendChild(style);
+        this.shadowRoot.appendChild(this.loadingSpinner);
 
         await register();
         await this.initializeWorker(repoUrl, username, password, attributes, fileName);
@@ -69,12 +76,12 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
         const gitWorker = new Worker('./src/libs/gitWorker.js');
         const portal = new MagicPortal(gitWorker);
         this.workerThread = await portal.get('workerThread');
+        await this.startLoading(1);
         const content = await this.getWebComponentFromRepo(repoUrl, username, password, fileName);
         this.updatedAttributes = await this.applySettings(attributes);
-        const setSettingsAddresses = await this.workerThread.setSettingsAddresses();
-        console.log('setSettingsAddresses', setSettingsAddresses)
+        await this.workerThread.setSettingsAddresses();
         this.runWebComponent(content, this.updatedAttributes);
-        
+        await this.startLoading(0);
     } catch (err) {
         console.error('Error during worker initialization:', err);
     }
@@ -129,7 +136,7 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
             if (this.lastLocalCommit != lastRemoteCommit) {
                 console.log(2)
 
-                    await workerThread.fastForward({
+                await workerThread.fastForward({
                     url: repoUrl,
                     databaseName: 'tempDB',
                 });
@@ -168,9 +175,7 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
         scriptElement.textContent = content;
         this.shadowRoot.appendChild(this.alertComponent);
         this.shadowRoot.appendChild(scriptElement);
-        console.log('cont', content)
         const componentName = this.extractComponentName(content);
-        console.log('componentName',componentName)
         if (componentName) {
             const componentInstance = document.createElement(componentName);
     
@@ -188,7 +193,6 @@ async initializeWorker(repoUrl, username, password, attributes, fileName) {
 
     extractComponentName(content) {
         const match = content.match(/customElements\.define\(['"]([^'"]+)['"]/);
-        console.log('match', match);
         return match ? match[1] : null;
     }    
 }

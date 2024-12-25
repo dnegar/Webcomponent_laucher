@@ -11,7 +11,7 @@ let dir = '/';
 let depth = 1;
 let remote = 'origin';
 let ref = 'main';
-let corsProxy = 'https://cors-proxy-temp.liara.run/'
+let corsProxy = 'http://localhost:3000' //'https://cors-proxy-temp.liara.run/'
 let cache = {};
 let settingsFileAddresses = {};
 const http = GitHttp;
@@ -352,7 +352,7 @@ class DatabaseManager {
 
   async extractRepoAddress(url) {
     const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
-    const match = url.match(regex);
+    const match = url?.match(regex);
     if (match) {
       let domain = match[1].replace('/', '-');
       let repoName = match[2].replace('/', '-');;
@@ -476,7 +476,7 @@ async function regenerateIdxFiles() {
   }
 }
 
-async function retryOperation(operation, args, maxRetries = 5) {
+async function retryOperation(operation, args, maxRetries = 2) {
   let retryCount = 0;
   let delay = 1000;
 
@@ -1080,36 +1080,4 @@ async function retrieveLogFromCache() {
 }
 
 async function handleNoMainError(operation, args, count) {
-  console.log(`Attempt ${count + 1}: Branch "${ref}" not found. Attempting to checkout to the other branch.`);
-
-  try {
-      if (count < 2) { // Allow for two retries (3 attempts in total)
-          // Unlock mutex if it was locked
-          mutex.unlock();
-
-          // Switch between 'main' and 'master'
-          ref = (ref === 'main') ? 'master' : (ref === 'master') ? 'main' : undefined;
-
-          if (ref === undefined) {
-              console.error('No default branch name found, you should set it manually!');
-              return false; // Indicate that no retry is possible
-          }
-
-          // Increment count and retry the operation with the new ref
-          return await operation(args, count + 1);
-      } else {
-          console.error('Exceeded the maximum number of retries. Please check the branch name manually.');
-          noMainErrorCounts = {
-            cloneCount: 0,
-            pushCount: 0,
-            pullCount: 0,
-            fetchCount: 0,
-            ffCount: 0
-          };
-          throw new Error('Exceeded the maximum number of retries.');
-      }
-  } catch (checkoutError) {
-      console.error(`Checkout to branch "${ref}" failed:`, checkoutError);
-      throw checkoutError; // Propagate the error after all attempts
-  }
 }

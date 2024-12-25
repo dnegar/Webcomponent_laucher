@@ -9,7 +9,6 @@
 /* globals LightningFS git MagicPortal GitHttp */
 /* eslint-env worker */
 
-
 importScripts(
   './require.js',
 );
@@ -281,9 +280,8 @@ class DatabaseManager {
   }
 
   async extractRepoAddress(url) {
-    consoleDotLog('urllll', url)
     const regex = /^(?:https?:\/\/)?(?:www\.)?([^\/]+)\/(.+)/;
-    const match = url.match(regex);
+    const match = url.match(regex) || null;
     if (match) {
       let domain = match[1].replace('/', '-');
       let repoName = match[2].replace('/', '-');
@@ -428,6 +426,7 @@ async function getFileStoresFromDatabases() {
 }
 
 async function setFs(args) {
+  consoleDotLog('args', args)
   const result = await databaseManager.setFs(args);
   fsArgs = args;
   await self.passFsArgs();
@@ -657,7 +656,7 @@ async function removeAndPush(args) {
 //you can change depth by using setDepth
 //remote is a prerequisite for this function which is being set using clone
 async function doFetch(args) {
-  await setUrl(args.url);
+  !url && await setUrl(args?.url);
   try {
     try {
       await databaseManager.setFs(args);
@@ -785,7 +784,6 @@ async function init(){
       fs,
       dir
     })
-    consoleDotLog('kiri')
   }
   catch(error){
   consoleDotLog('something went wrong while initing the repo: ', error)
@@ -818,9 +816,11 @@ async function checkDirExists() {
 //you can change depth by using setDepth function
 async function doCloneAndStuff(args) {
   let useNetwork = false;
+  let deleteAttempt = args.deleteAttempt || 0;
+  const maxDeleteRetries = 1;
   const repoName = await databaseManager.getDatabaseName(args);
   consoleDotLog('doclone repoName ', repoName)
-  await setUrl(args.url);
+  !url && await setUrl(args?.url);
   await setDepth(depth);
 
   try {
@@ -859,34 +859,26 @@ async function doCloneAndStuff(args) {
     return ({handleNoRefResult, message: 'notExist', success: true});
   } catch (error) {
     consoleDotError('some error happend while doCloneAndStuff: ', error);
-    await handleDeleteCloseAndReclone(args);
-    return {success: false}
+    (deleteAttempt < maxDeleteRetries) && await handleDeleteCloseAndReclone({...args, deleteAttempt});
+    throw ('clone was\'nt successful: ', error);
   }
 }
 
-async function handleDeleteCloseAndReclone(args, retries = 3) {
+async function handleDeleteCloseAndReclone(args) {
   const repoName = await databaseManager.getDatabaseName(args);
+  const deleteAttempt = args.deleteAttempt + 1;
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`Attempt ${attempt} to delete and reclone...`);
+  try {
+    console.log(`Attempt ${deleteAttempt} to delete and reclone...`);
+    await databaseManager.deleteIndexedDB(repoName);
 
-      await databaseManager.deleteIndexedDB(repoName);
+    console.log('Trying to reclone the repository...');
+    await doCloneAndStuff({ ...args, url: args.url, deleteAttempt });
+    console.log('Reclone successful!');
+    return;
 
-      console.log('Trying to reclone the repository...');
-      await doCloneAndStuff({ ...args, url: args.url });
-      console.log('Reclone successful!');
-      
-      return;
-
-    } catch (error) {
-      consoleDotError(`Error during delete, close, and reclone process for ${repoName} (Attempt ${attempt}):`, error);
-
-      if (attempt === retries) {
-        consoleDotError(`All ${retries} attempts failed.`);
-        throw error;
-      }
-    }
+  } catch (error) {
+    consoleDotError(`Error during delete, close, and reclone process for ${repoName} (Attempt ${deleteAttempt}):`, error);
   }
 }
 
@@ -894,12 +886,12 @@ async function isDirectory(path) {
   const stat = await fs.promises.lstat(path);
   return stat.isDirectory();
 }
+
 //this function removes a dir and its subdirectories recursively from FS
 async function removeDirRecursively(path) {
   try {
-    if (!await isDirectory(path)) {        
-      consoleDotLog(fullPath)
-      await fs.promises.unlink(fullPath);
+    if (!await isDirectory(path)) {  
+      await fs.promises.unlink(path);
     }
     else{
       const files = await fs.promises.readdir(path);
@@ -911,6 +903,7 @@ async function removeDirRecursively(path) {
         } else {
           await fs.promises.unlink(fullPath); // Remove file
         }
+        await fs.promises.rmdir(path);
       }
     }
   } catch (error) {
@@ -1013,7 +1006,7 @@ async function log(args) {
 
 //gets remote, url as parameters
 async function push(args) {
-  await setUrl(args.url);
+  !url && await setUrl(args?.url);
   try {
     await databaseManager.setFs(args);
     await setDatabaseName(args?.databaseName);
@@ -1139,7 +1132,7 @@ async function mkdirRecursive(path) {
 //This function takes url, username, email
 //as arguments and pulls the remote directory
 async function pull(args) {
-  await setUrl(args.url);
+  !url && await setUrl(args?.url);
   try {
     await databaseManager.setFs(args);
     await setDatabaseName(args?.databaseName);
@@ -1161,6 +1154,7 @@ async function pull(args) {
 async function fastForward(args) {
   try {
     try {
+      !url && await setUrl(args?.url);
       await databaseManager.setFs(args);
       await setDatabaseName(args?.databaseName);
       await fetchWithServiceWorker('fastForward', args);
@@ -1193,7 +1187,7 @@ async function addFile(args) {
 async function addDot() {
   try {
     const changedFiles = await getChangedFilesList();
-    consoleDotLog('changedFiles', changedFiles)
+    consoleDotLog('changedFiles', changedFiles);
     for (let filePath in changedFiles){
       await addFile({filePath: filePath});
     }
@@ -1236,7 +1230,7 @@ async function readFile(args) {
     return await fs.promises.readFile(args.filePath, 'utf8');
   } catch (error) {
     consoleDotError('Error reading file:', error);
-    return false;
+    throw(error);
   }
 }
 
@@ -1244,19 +1238,15 @@ async function readFile(args) {
 //and paths for values
 async function listFiles(filePath = dir) {
   try {
-    consoleDotLog(1000);
       let path = filePath
       let files = await fs.promises.readdir(filePath);
       let result = {};
 
-      consoleDotLog('files', files)
       for (const file of files) {
           if (path !== '/') {
-            consoleDotLog('filePath',filePath)
             filePath = path + '/' + file;
           }
           else {
-            consoleDotLog('filePath',filePath)
             filePath = path + file;
           }
           if (await isDirectory(filePath)) {
@@ -1276,7 +1266,6 @@ async function listFiles(filePath = dir) {
 //and fileContents is a string.
 async function writeFile(args) {
   try {
-
     await mkdirRecursive(args.filePath);
     await fs.promises.writeFile(args.filePath, args.fileContents, 'utf8');
 
@@ -1366,11 +1355,14 @@ async function statusMapper(statusMatrix) {
     isSync,
     listBranches,
     listFiles,
+    listRemotes,
     log,
+    mkdirRecursive,
     pull,
     push,
     readFile,
     readSettingsFile,
+    remove,
     removeAndPush,
     setAuthParams,
     setConfigs,

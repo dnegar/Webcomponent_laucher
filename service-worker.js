@@ -11,7 +11,7 @@ let dir = '/';
 let depth = 1;
 let remote = 'origin';
 let ref = 'main';
-let corsProxy = 'http://localhost:3000' //'https://cors-proxy-temp.liara.run/'
+let corsProxy = 'http://localhost:3000' //'https://cors-proxy-temp.liara.run/' 
 let cache = {};
 let settingsFileAddresses = {};
 const http = GitHttp;
@@ -25,6 +25,22 @@ let noMainErrorCounts = {
   fetchCount: 0,
   ffCount: 0
 };
+let consoleLoggingOn = true;
+let fsArgs = {};
+
+function consoleDotLog(...parameters) {
+  if (!consoleLoggingOn) return;
+
+  console.log(...parameters);
+  //console.trace();
+}
+
+function consoleDotError(...parameters) {
+  if (!consoleLoggingOn) return;
+
+  console.error(...parameters);
+  console.trace();
+}
 
 const CACHE_NAME = 'cache-v1';
 //const OFFLINE_URL = '/offline.html';
@@ -42,31 +58,55 @@ const scopePath = basePath ? `/${basePath}/` : '/';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
-  console.log('install');
+  consoleDotLog('install');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('Opened cache');
+      consoleDotLog('Opened cache');
       return cache.addAll(URLS_TO_CACHE);
     }).catch((error) => {
-      console.error('Failed to cache', error);
+      consoleDotError('Failed to cache', error);
     })
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    (async () => {
+      username = '';
+      password = '';
+      dir = '/';
+      depth = 1;
+      remote = 'origin';
+      ref = 'main';
+      cache = {};
+      settingsFileAddresses = {};
+      http = GitHttp;
+      useCacheForRepo = 0;
+      broadcastChannel;
+      fs = new LightningFS('fs');
+      noMainErrorCounts = {
+        cloneCount: 0,
+        pushCount: 0,
+        pullCount: 0,
+        fetchCount: 0,
+        ffCount: 0
+      };
+      consoleLoggingOn = true;
+      fsArgs = {};
+      
+      const cacheNames = await caches.keys();
+      await Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
             return caches.delete(cacheName);
           }
         })
       );
-    })
+    })()
   );
   return self.clients.claim();
 });
+
 
 self.addEventListener('message', (event) => {
   if (event.data.action === 'skipWaiting') {
@@ -81,7 +121,7 @@ if (!self.broadcastChannelInitialized) {
 
   broadcastChannel.onmessage = async function (event) {
     const message = event.data;
-    console.log(message);
+    consoleDotLog(message);
 
     try {
       switch (message.operation) {
@@ -114,7 +154,7 @@ if (!self.broadcastChannelInitialized) {
           break;
       }
     } catch (error) {
-      console.error(`${message.operation} failed`, error);
+      consoleDotError(`${message.operation} failed`, error);
       throw new Error(error.message);
     }
   };
@@ -123,13 +163,14 @@ if (!self.broadcastChannelInitialized) {
 }
 
 async function exceptionHandler(message) {
-  console.error('Unhandled message operation:', message.operation);
+  consoleDotError('Unhandled message operation:', message.operation);
 }
 
 async function handleSetAuthParams(data) {
   if (username !== data.username || password !== data.password) {
     username = data.username || '';
     password = data.password || '';
+    consoleDotLog('handlesetauthparame: ', data);
     broadcastChannel.postMessage({ operation: 'setAuthParams', success: true });
   } else{
     broadcastChannel.postMessage({ operation: 'setAuthParams', success: true });
@@ -192,19 +233,24 @@ async function handleSetSettingsFileAddresses(data) {
 
 async function handlePassFsArgs(data) {
   try {
-    databaseManager.setFs(data);
-    broadcastChannel.postMessage({ operation: 'passFsArgs', success: true });
+    if (fsArgs !== data) {
+      fsArgs = data;
+      databaseManager.setFs(fsArgs);
+      broadcastChannel.postMessage({ operation: 'passFsArgs', success: true });
+    } else {
+      broadcastChannel.postMessage({ operation: 'passFsArgs', success: true });
+    }
   } catch(error) {
-    console.error('some error happened in passFsArgs: ', error);
+    consoleDotError('some error happened in passFsArgs: ', error);
   }
 }
 
 async function fetchSettingsFileContent(pathname) {
   try {
-    console.log('pathname',pathname)
+    consoleDotLog('pathname',pathname)
     const content = await fs.promises.readFile(pathname, 'utf8');
     if (content) {
-      console.log('fetch content', content)
+      consoleDotLog('fetch content', content)
       return content;
     }
   } catch (error) {
@@ -213,45 +259,73 @@ async function fetchSettingsFileContent(pathname) {
 }
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  console.log(`Fetching: ${url.pathname}`);
+  try {
+    const url = new URL(event.request.url);
+    consoleDotLog(`Fetching: ${url.pathname}`);
 
-  // If the request is for `/git`, handle it specifically
-  if (url.pathname === '/git') {
-    event.respondWith(handleGitRequest(event.request));
-    return; // Ensure no further processing happens for this request
-  }
+    // If the request is for `/git`, handle it specifically
+    if (url.pathname === '/git') {
+      event.respondWith(handleGitRequest(event.request));
+      return;
+    }
 
-  // Extract the scopePath and check if it matches any settings file address
-  const extractedPath = scopePath && url.pathname.startsWith(scopePath)
-    ? url.pathname.slice(scopePath.length - 1) // Retain the leading `/`
-    : url.pathname;
+    const extractedPath = scopePath && url.pathname.startsWith(scopePath)
+      ? url.pathname.slice(scopePath.length - 1)
+      : url.pathname;
 
-  console.log(`Extracted path: ${extractedPath}`);
+    consoleDotLog(`Extracted path: ${extractedPath}`);
 
-  if (settingsFileAddresses[extractedPath]) {
-    console.log('Matched settings file path:', extractedPath);
+    if (settingsFileAddresses[extractedPath]) {
+      consoleDotLog('Matched settings file path:', extractedPath);
+
+      event.respondWith(
+        fetchSettingsFileContent(extractedPath)
+          .then((content) =>
+            new Response(content, {
+              headers: { 'Content-Type': 'application/json' },
+            })
+          )
+          .catch((error) => {
+            consoleDotError('Error reading file:', error);
+            const statusCode = mapErrorToStatusCode(error.message || error.toString());
+            return new Response(
+              JSON.stringify({ error: 'File not found or inaccessible', details: error.message }),
+              {
+                status: statusCode,
+                headers: { 'Content-Type': 'application/json' },
+              }
+            );
+          })
+      );
+      return;
+    }
 
     event.respondWith(
-      fetchSettingsFileContent(extractedPath)
-        .then((content) =>
-          new Response(content, {
-            headers: { 'Content-Type': 'application/json' }, // Adjust content type as needed
-          })
-        )
-        .catch((error) => {
-          console.error('Error reading file:', error);
-          return new Response(JSON.stringify({ error: 'File not found or inaccessible' }), {
-            status: 404,
+      fetch(event.request).catch((error) => {
+        consoleDotError('Network fetch failed:', error);
+        const statusCode = mapErrorToStatusCode(error.message || error.toString());
+        return new Response(
+          JSON.stringify({ error: 'Network error', details: error.message }),
+          {
+            status: statusCode,
             headers: { 'Content-Type': 'application/json' },
-          });
-        })
+          }
+        );
+      })
     );
-    return; // Ensure no further processing happens for this request
+  } catch (error) {
+    consoleDotError('Error in fetch handler:', error);
+    const statusCode = mapErrorToStatusCode(error.message || error.toString());
+    event.respondWith(
+      new Response(
+        JSON.stringify({ error: 'Unexpected error', details: error.message }),
+        {
+          status: statusCode,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
   }
-
-  // Fallback to default fetch for other requests
-  event.respondWith(fetch(event.request));
 });
 
 class Mutex {
@@ -333,10 +407,10 @@ class DatabaseManager {
 
       this.currentFs = this.repoFileSystems[repoName];
       fs = this.currentFs;
-      console.log('File system set for repo:', repoName);
+      consoleDotLog('File system set for repo:', repoName);
       return this.currentFs;
     } catch (error) {
-      console.error('Error setting FS:', error);
+      consoleDotError('Error setting FS:', error);
     }
   }
 
@@ -346,7 +420,7 @@ class DatabaseManager {
         fileStoreName: `fs_${repoName}`,
         wipe: false,
       });
-      console.log(`Initialized file system for ${repoName}`);
+      consoleDotLog(`Initialized file system for ${repoName}`);
     }
   }
 
@@ -372,7 +446,7 @@ class DatabaseManager {
       });
       consoleDotLog('Fs successfully wiped out ...')
     } catch (error) {
-        console.error("Error wiping file system:", error);
+        consoleDotError("Error wiping file system:", error);
         throw error; 
     }
   }
@@ -382,7 +456,7 @@ class DatabaseManager {
       const repoName = databaseName || await this.extractRepoAddress(url);
       return repoName;
     } catch(error) {
-      console.error('some error happend: ', error);
+      consoleDotError('some error happend: ', error);
     }
   }
 }
@@ -394,11 +468,11 @@ async function deleteIndexedDB(dbName) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(dbName);
     request.onsuccess = () => {
-      console.log(`Deleted database ${dbName} successfully`);
+      consoleDotLog(`Deleted database ${dbName} successfully`);
       resolve();
     };
     request.onerror = (event) => {
-      console.error(`Error deleting database ${dbName}:`, event);
+      consoleDotError(`Error deleting database ${dbName}:`, event);
       reject(event);
     };
     request.onblocked = () => {
@@ -427,12 +501,10 @@ async function gitReset({dir, ref, branch}) {
               if (err) {
                   return reject(err);
               }
-              // clear the index (if any)
               fs.unlink(dir + '/.git/index', (err) => {
                   if (err) {
                       return reject(err);
                   }
-                  // checkout the branch into the working tree
                   git.checkout({ dir, fs, ref: branch, force: true }).then(resolve);
               });
           });
@@ -440,8 +512,6 @@ async function gitReset({dir, ref, branch}) {
   }
   return Promise.reject(`Wrong ref ${ref}`);
 }
-
-
 async function regenerateIdxFiles() {
   const packDir = `${dir}/.git/objects/pack`;
   let packfiles = await fs.promises.readdir(packDir);
@@ -449,7 +519,7 @@ async function regenerateIdxFiles() {
 
   for (const packfile of packfiles) {
       await fs.promises.unlink(`${packDir}/${packfile}`);
-      console.log(`Deleted .idx file: ${packfile}`);
+      consoleDotLog(`Deleted .idx file: ${packfile}`);
   }
 
   // **Regenerate .idx files**
@@ -460,18 +530,18 @@ async function regenerateIdxFiles() {
       const packFilePath = `${packDir}/${packfile}`;
       try {
           const relativePackFilePath = packFilePath.replace(`${dir}/`, '');
-          console.log('Attempting to generate .idx file for:', packFilePath);
+          consoleDotLog('Attempting to generate .idx file for:', packFilePath);
           const { oids } = await git.indexPack({
               fs,
               dir,
               filepath: relativePackFilePath,
               async onProgress(evt) {
-                  console.log(`${evt.phase}: ${evt.loaded} / ${evt.total}`);
+                  consoleDotLog(`${evt.phase}: ${evt.loaded} / ${evt.total}`);
               }
           });
-          console.log('Generated .idx file for:', relativePackFilePath, 'OIDs:', oids);
+          consoleDotLog('Generated .idx file for:', relativePackFilePath, 'OIDs:', oids);
       } catch (err) {
-          console.error(`Error regenerating .idx files for ${packfile}:`, err);
+          consoleDotError(`Error regenerating .idx files for ${packfile}:`, err);
       }
   }
 }
@@ -488,7 +558,7 @@ async function retryOperation(operation, args, maxRetries = 2) {
         retryCount++;
         if (retryCount > maxRetries) throw new Error('Max retries reached for operation.');
         
-        console.log(`Network error, Retrying operation in ${delay / 1000} seconds... (Attempt ${retryCount})`);
+        consoleDotLog(`Network error, Retrying operation in ${delay / 1000} seconds... (Attempt ${retryCount})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2;
       } else {
@@ -498,17 +568,28 @@ async function retryOperation(operation, args, maxRetries = 2) {
   }
 }
 
+function buildHeaders(username, password) {
+  if (!username && !password) {
+    consoleDotLog('No username or password provided. Returning empty headers.');
+    return {};
+  }
+  return {
+    authorization: `Basic ${btoa(`${username}:${password}`)}`
+  };
+}
+
 
 async function clone(args) {
+  consoleDotLog('entering clone with : ', args);
   return await retryOperation(async (args) => {
-    console.log('Entering clone function with arguments:', args);
+    consoleDotLog('Entering clone function with arguments:', args);
 
     noMainErrorCounts.cloneCount ++;
     let cloneResult = {};
     let repoName = await databaseManager.getDatabaseName(args);
     await mutex.lock();
     try {
-        console.log('ref', ref)
+        consoleDotLog('ref', ref)
         if (!databaseManager.repoFileSystems[repoName]) {
             await databaseManager.setFs(args);
         }
@@ -526,6 +607,7 @@ async function clone(args) {
                 ref,
                 corsProxy,
                 depth,
+                headers: buildHeaders(username, password),
                 onAuth() {
                     return authenticate.fill();
                 },
@@ -534,7 +616,7 @@ async function clone(args) {
                 },
             });
 
-            console.log('Clone successful', result);
+            consoleDotLog('Clone successful', result);
             if (useCacheForRepo){
               //await regenerateIdxFiles();
               const fileList = await listFiles();
@@ -547,13 +629,13 @@ async function clone(args) {
             await writeFilesToIndexedDB(cloneResult);
             await gitReset({ dir, ref: 'HEAD~1', branch: ref });
             await logToCache('clone (from cache)', { repoName });
-            console.log('log', await retrieveLogFromCache());
+            consoleDotLog('log', await retrieveLogFromCache());
             cloneResult = { isCacheUsed: true, ref: ref };
         }
 
         return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
     } catch (error) {
-        console.error('Clone failed with error:', error);
+        consoleDotError('Clone failed with error:', error);
         if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
               let isHandled = await handleNoMainError(clone, args, noMainErrorCounts.cloneCount);
               if (!isHandled) {
@@ -563,13 +645,13 @@ async function clone(args) {
               cloneResult = { isCacheUsed: false, ref: ref};
               return { success: true, message: 'The repo has successfully cloned', data: cloneResult };
         } else if (error?.response?.status === 500) {
-            console.error('Server responded with 500 Internal Server Error');
+            consoleDotError('Server responded with 500 Internal Server Error');
             throw new Error('Internal Server Error: The server encountered an error.');
         } else if (typeof error === 'object') {
-            console.error('Error properties:', Object.keys(error));
+            consoleDotError('Error properties:', Object.keys(error));
             throw new Error(error.message || 'An unknown error occurred during the clone operation');
         } else {
-            console.error('Unknown error:', error);
+            consoleDotError('Unknown error:', error);
             throw new Error('An unknown error occurred during the clone operation');
         }
     } finally {
@@ -582,10 +664,10 @@ async function cacheFileList(cacheKey, fileList) {
   try {
     const cache = await caches.open(CACHE_NAME);
     const filesWithContent = {};
-    console.log('fl', fileList);
+    consoleDotLog('fl', fileList);
 
     for (const [fileName, filePath] of Object.entries(fileList)) {
-      console.log('fn, fp', fileName, filePath);
+      consoleDotLog('fn, fp', fileName, filePath);
       const stats = await fs.promises.stat(filePath);
       
       if (stats.isDirectory()) {
@@ -597,15 +679,15 @@ async function cacheFileList(cacheKey, fileList) {
       }
     }
 
-    console.log('filesWithContent', filesWithContent);
+    consoleDotLog('filesWithContent', filesWithContent);
 
     const response = new Response(JSON.stringify(filesWithContent), {
       headers: { 'Content-Type': 'application/json' }
     });
     await cache.put(cacheKey, response);
-    console.log('File list and contents cached successfully', response);
+    consoleDotLog('File list and contents cached successfully', response);
   } catch (error) {
-    console.error('Error caching file list and contents:', error);
+    consoleDotError('Error caching file list and contents:', error);
   }
 }
 
@@ -614,25 +696,25 @@ async function listFiles(filePath = dir) {
     let path = filePath;
     let files = await fs.promises.readdir(filePath);
     let result = {};
-    console.log('files',files)
+    consoleDotLog('files',files)
     result[filePath] = filePath;
 
     for (const file of files) {
-      console.log('file',file)
+      consoleDotLog('file',file)
       let fullPath = path !== '/' ? `${path}/${file}` : `${path}${file}`;
       const stat = await fs.promises.lstat(fullPath);
 
       if (stat.isDirectory()) {
-        console.log('fullPath',fullPath)
+        consoleDotLog('fullPath',fullPath)
         result = { ...result, ...await listFiles(fullPath) };
       } else {
-        console.log('result',result)
+        consoleDotLog('result',result)
         result[fullPath] = fullPath;
       }
     }
     return result;
   } catch (error) {
-    console.error('Error listing files:', error);
+    consoleDotError('Error listing files:', error);
     throw error;
   }
 }
@@ -644,14 +726,14 @@ async function fetchCachedFileList(cacheKey) {
 
     if (cachedResponse) {
       const filesWithContent = await cachedResponse.json();
-      console.log('Files and contents fetched from cache:', filesWithContent);
+      consoleDotLog('Files and contents fetched from cache:', filesWithContent);
       return filesWithContent;
     } else {
-      console.log('No cached file list found');
+      consoleDotLog('No cached file list found');
       return null;
     }
   } catch (error) {
-    console.error('Error fetching cached file list and contents:', error);
+    consoleDotError('Error fetching cached file list and contents:', error);
     return null;
   }
 }
@@ -668,13 +750,13 @@ async function writeFilesToIndexedDB(filesWithContents) {
     if (fileContent === '') {
       // If fileContent is an empty string, create the directory
       await fs.promises.mkdir(filePath, { recursive: true });
-      console.log(`Directory created: ${filePath}`);
+      consoleDotLog(`Directory created: ${filePath}`);
     } else {
       // Write file content to the appropriate path
       await fs.promises.writeFile(filePath, fileContent);
     }
   }
-  console.log('All files and contents have been written to IndexedDB using LightningFS.');
+  consoleDotLog('All files and contents have been written to IndexedDB using LightningFS.');
 }
 
 async function ensureDirectoryExists(fs, dirPath) {
@@ -685,10 +767,10 @@ async function ensureDirectoryExists(fs, dirPath) {
     currentPath += `/${part}`;
     try {
       await fs.promises.mkdir(currentPath);
-      console.log(`Directory created: ${currentPath}`);
+      consoleDotLog(`Directory created: ${currentPath}`);
     } catch (error) {
       if (error.code !== 'EEXIST') {
-        console.error(`Error creating directory: ${currentPath}`, error);
+        consoleDotError(`Error creating directory: ${currentPath}`, error);
         throw error;
       }
     }
@@ -699,7 +781,7 @@ async function writeFilesToIndexedDB(filesWithContents) {
   try {
     for (const [filePath, fileContent] of Object.entries(filesWithContents)) {
       const directories = filePath.split('/').slice(0, -1).join('/');
-      console.log(filePath);
+      consoleDotLog(filePath);
 
       try {
         // Create directories if they don't exist
@@ -707,7 +789,7 @@ async function writeFilesToIndexedDB(filesWithContents) {
           await ensureDirectoryExists(fs, directories);
         }
       } catch (dirError) {
-        console.error(`Error creating directories for path: ${directories}. Error: ${dirError.message}`);
+        consoleDotError(`Error creating directories for path: ${directories}. Error: ${dirError.message}`);
         throw dirError; // Re-throw to exit the loop or handle it outside this function
       }
 
@@ -715,13 +797,13 @@ async function writeFilesToIndexedDB(filesWithContents) {
         // Write file content to the appropriate path
         await fs.promises.writeFile(filePath, fileContent);
       } catch (writeError) {
-        console.error(`Error writing file at path: ${filePath}. Error: ${writeError.message}`);
+        consoleDotError(`Error writing file at path: ${filePath}. Error: ${writeError.message}`);
         throw writeError; 
       }
     }
-    console.log('All files and contents have been written to IndexedDB using LightningFS.');
+    consoleDotLog('All files and contents have been written to IndexedDB using LightningFS.');
   } catch (error) {
-    console.error('An error occurred during the write operation:', error);
+    consoleDotError('An error occurred during the write operation:', error);
     throw error; 
   }
 }
@@ -741,53 +823,36 @@ function mapErrorToStatusCode(message) {
   if (message.includes('502')) return 502;
   if (message.includes('503')) return 503;
   if (message.includes('504')) return 504;
-  return 500; // Default
-}
-
-function getErrorMessage(statusCode) {
-  const messages = {
-    400: 'Bad Request',
-    401: 'Unauthorized',
-    403: 'Forbidden',
-    404: 'Not Found',
-    409: 'Conflict',
-    422: 'Unprocessable Entity',
-    429: 'Too Many Requests',
-    500: 'Internal Server Error',
-    501: 'Not Implemented',
-    502: 'Bad Gateway',
-    503: 'Service Unavailable',
-    504: 'Gateway Timeout'
-  };
-  return messages[statusCode] || 'Internal Server Error';
+  return 500;
 }
 
 // Auth object
 const authenticate = {
   async fill() {
+    consoleDotLog('authenticate', username, password)
     return { username: username, password: password };
   },
   async rejected() {
-    console.log("Authentication rejected");
+    consoleDotLog("Authentication rejected");
     return;
   }
 };
 
+
 async function pull(args) {
   return await retryOperation(async (args) => {
-
-    noMainErrorCounts.pullCount ++;
+    noMainErrorCounts.pullCount++;
     let pullResult = {};
     await mutex.lock();
     try {
       await databaseManager.setFs(args);
-      console.log('Entering pull function with arguments:', args);
+      consoleDotLog('Entering pull function with arguments:', args);
 
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }
 
-      console.log('Using reference (ref):', ref);
+      consoleDotLog('Using reference (ref):', ref);
 
       const result = await git.pull({
         ...args,
@@ -800,6 +865,7 @@ async function pull(args) {
         fastForward: true,
         forced: true,
         singleBranch: true,
+        headers: buildHeaders(username, password),
         onAuth() {
           return authenticate.fill();
         },
@@ -807,49 +873,42 @@ async function pull(args) {
           return authenticate.rejected();
         },
       });
-      pullResult = { ref: ref}
-      console.log('Pull successful. Result:', result);
+      pullResult = { ref: ref };
+      consoleDotLog('Pull successful. Result:', result);
       return { success: true, message: result, data: pullResult };
     } catch (error) {
       if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
         let isHandled = await handleNoMainError(pull, args, noMainErrorCounts.pullCount);
         if (!isHandled) {
-            throw error;
+          throw error;
         }
         noMainErrorCounts.pullCount = 0;
-        pullResult = { ref: ref};
+        pullResult = { ref: ref };
         return { success: true, message: 'pull was successful', data: pullResult };
-      } 
-      console.error('Error occurred during pull operation:', {
-        message: error.message,
-        stack: error.stack,
-        args
-      });
-
+      }
+      consoleDotError('Error occurred during pull operation:', error);
       throw new Error(`Pull failed: ${error.message}`);
     } finally {
-      console.log('Exiting pull function.');
+      consoleDotLog('Exiting pull function.');
       mutex.unlock();
     }
   }, args);
 }
-    
+
 async function fastForward(args) {
   return await retryOperation(async (args) => {
-
-    noMainErrorCounts.ffCount ++;
+    noMainErrorCounts.ffCount++;
     let ffResult = {};
     await mutex.lock();
     try {
       await databaseManager.setFs(args);
-      console.log('Entering fastForward function with arguments:', args);
+      consoleDotLog('Entering fastForward function with arguments:', args);
 
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }
-      console.log('Using reference (ref):', ref);
 
-      const result = await  git.fastForward({
+      const result = await git.fastForward({
         ...args,
         fs,
         cache,
@@ -861,6 +920,7 @@ async function fastForward(args) {
         remoteref: ref,
         forced: true,
         singleBranch: false,
+        headers: buildHeaders(username, password),
         onAuth() {
           return authenticate.fill();
         },
@@ -869,29 +929,23 @@ async function fastForward(args) {
         },
       });
 
-      ffResult = { ref: ref}
-      console.log('FastForward pull successful. Result:', result);
+      ffResult = { ref: ref };
+      consoleDotLog('FastForward pull successful. Result:', result);
       return { success: true, message: result, data: ffResult };
     } catch (error) {
-      //handling main and master errors
       if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
         let isHandled = await handleNoMainError(fastForward, args, noMainErrorCounts.ffCount);
         if (!isHandled) {
-            throw error;
+          throw error;
         }
         noMainErrorCounts.ffCount = 0;
-        ffResult = { ref: ref};
+        ffResult = { ref: ref };
         return { success: true, message: 'FastForward was successful', data: ffResult };
-      } 
-      console.error('Error occurred during fastForward operation:', {
-        message: error.message,
-        stack: error.stack,
-        args
-      });
-
+      }
+      consoleDotError('Error occurred during fastForward operation:', error);
       throw new Error(`FastForward pull failed: ${error.message}`);
     } finally {
-      console.log('Exiting fastForward function.');
+      consoleDotLog('Exiting fastForward function.');
       mutex.unlock();
     }
   }, args);
@@ -899,18 +953,16 @@ async function fastForward(args) {
 
 async function push(args) {
   return await retryOperation(async (args) => {
-
-    noMainErrorCounts.pushCount ++;
+    noMainErrorCounts.pushCount++;
     let pushResult = {};
     await mutex.lock();
     try {
       await databaseManager.setFs(args);
-      console.log('Entering push function with arguments:', args);
+      consoleDotLog('Entering push function with arguments:', args);
 
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }
-      console.log('Using reference (ref):', ref);
 
       const result = await git.push({
         ...args,
@@ -921,6 +973,7 @@ async function push(args) {
         remote,
         ref,
         force: true,
+        headers: buildHeaders(username, password),
         onAuth() {
           return authenticate.fill();
         },
@@ -929,27 +982,22 @@ async function push(args) {
         },
       });
 
-      pushResult = { ref: ref};
-      console.log('Push successful. Result:', result);
+      pushResult = { ref: ref };
+      consoleDotLog('Push successful. Result:', result);
       return { success: true, message: 'Push was successful', data: pushResult };
     } catch (error) {
-      //handling main and master errors
       if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
         let isHandled = await handleNoMainError(push, args, noMainErrorCounts.pushCount);
         if (!isHandled) {
-            throw error;
+          throw error;
         }
         noMainErrorCounts.pushCount = 0;
-        pushResult = { ref: ref};
+        pushResult = { ref: ref };
         return { success: true, message: 'Push was successful', data: pushResult };
-      } 
-      console.error('Error occurred during push operation:', {
-        message: error.message,
-        stack: error.stack,
-        args
-      });
+      }
+      consoleDotError('Error occurred during push operation:', error);
     } finally {
-      console.log('Exiting push function.');
+      consoleDotLog('Exiting push function.');
       mutex.unlock();
     }
   }, args);
@@ -957,19 +1005,16 @@ async function push(args) {
 
 async function doFetch(args) {
   return await retryOperation(async (args) => {
-
-    noMainErrorCounts.fetchCount ++;
+    noMainErrorCounts.fetchCount++;
     let fetchResult = {};
     await mutex.lock();
     try {
       await databaseManager.setFs(args);
-      console.log('Entering doFetch function with arguments:', args);
+      consoleDotLog('Entering doFetch function with arguments:', args);
 
       if (!ref) {
         throw new Error('Reference (ref) is not defined.');
       }
-
-      console.log('Using reference (ref):', ref);
 
       const result = await git.fetch({
         ...args,
@@ -982,6 +1027,7 @@ async function doFetch(args) {
         depth,
         singleBranch: false,
         tags: false,
+        headers: buildHeaders(username, password),
         onAuth() {
           return authenticate.fill();
         },
@@ -991,39 +1037,25 @@ async function doFetch(args) {
       });
 
       fetchResult = { ref: ref };
-      console.log('Fetch successful. Result:', result);
-      return { success: true, message: 'Fetch was successful', data: fetchResult};
+      consoleDotLog('Fetch successful. Result:', result);
+      return { success: true, message: 'Fetch was successful', data: fetchResult };
     } catch (error) {
       if (error?.message?.includes('Could not find') && error?.code === 'NotFoundError') {
         let isHandled = await handleNoMainError(doFetch, args, noMainErrorCounts.fetchCount);
-        if (isHandled === false){
+        if (!isHandled) {
           throw error;
         }
         noMainErrorCounts.fetchCount = 0;
-        fetchResult = { ref: ref};
+        fetchResult = { ref: ref };
         return { success: true, message: 'The repo has successfully cloned', data: fetchResult };
       }
-      console.error('Error occurred during fetch operation:', {
-        message: error.message,
-        stack: error.stack,
-        args
-      });
+      consoleDotError('Error occurred during fetch operation:', error);
       throw new Error(`Fetch failed: ${error.message}`);
     } finally {
-      // Log exit from the function
-      console.log('Exiting doFetch function.');
+      consoleDotLog('Exiting doFetch function.');
       mutex.unlock();
-    };
+    }
   }, args);
-}
-
-async function createBranch(args) {
-  //console.log('object', args.object);
-  return await git.branch({
-    ...args,
-    fs,
-    dir
-  })
 }
 
 async function logToCache(action, data) {
@@ -1053,9 +1085,9 @@ async function logToCache(action, data) {
     const updatedResponse = new Response(JSON.stringify(logs), { headers: { 'Content-Type': 'application/json' } });
     await cache.put('log', updatedResponse);
 
-    console.log(`Logged action: ${action} at ${timestamp}`, newLogEntry);
+    consoleDotLog(`Logged action: ${action} at ${timestamp}`, newLogEntry);
   } catch (error) {
-    console.error('Error logging data to cache:', error);
+    consoleDotError('Error logging data to cache:', error);
   }
 }
 
@@ -1067,17 +1099,49 @@ async function retrieveLogFromCache() {
     
     if (response) {
       const logs = await response.json();
-      console.log('Retrieved logs from cache:', logs);
+      consoleDotLog('Retrieved logs from cache:', logs);
       return logs;
     } else {
-      console.log('No logs found in cache.');
+      consoleDotLog('No logs found in cache.');
       return [];
     }
   } catch (error) {
-    console.error('Error retrieving logs from cache:', error);
+    consoleDotError('Error retrieving logs from cache:', error);
     return [];
   }
 }
 
 async function handleNoMainError(operation, args, count) {
+  consoleDotLog(`Attempt ${count + 1}: Branch "${ref}" not found. Attempting to checkout to the other branch.`);
+
+  try {
+      if (count < 2) { // Allow for two retries (3 attempts in total)
+          // Unlock mutex if it was locked
+          mutex.unlock();
+
+          // Switch between 'main' and 'master'
+          ref = (ref === 'main') ? 'master' : (ref === 'master') ? 'main' : undefined;
+
+          if (ref === undefined) {
+              consoleDotError('No default branch name found, you should set it manually!');
+              return false; // Indicate that no retry is possible
+          }
+
+          // Increment count and retry the operation with the new ref
+          return await operation(args, count + 1);
+      } else {
+          consoleDotError('Exceeded the maximum number of retries. Please check the branch name manually.');
+          noMainErrorCounts = {
+            cloneCount: 0,
+            pushCount: 0,
+            pullCount: 0,
+            fetchCount: 0,
+            ffCount: 0
+          };
+          throw new Error('Exceeded the maximum number of retries.');
+      }
+  } catch (checkoutError) {
+      consoleDotError(`Checkout to branch "${ref}" failed:`, checkoutError);
+      throw checkoutError; // Propagate the error after all attempts
+  }
 }

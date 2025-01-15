@@ -16,7 +16,7 @@ importScripts(
 require({
   baseUrl: "./"
 },
-["require", "MagicPortal", "LightningFS", "isomorphicgit"],
+["require", "MagicPortal", "LightningFS", "isomorphicgit129"],
 function(require, MagicPortal, LightningFS, git) {
 
 portal = new MagicPortal(this);
@@ -38,7 +38,7 @@ function consoleDotLog(...parameters) {
   if (!consoleLoggingOn) return;
 
   console.log(...parameters);
-  //console.trace();
+  console.trace();
 }
 
 function consoleDotError(...parameters) {
@@ -214,6 +214,10 @@ async function setAuthParams(_username, _password) {
 async function setRemote(_remote) {
   remote = _remote;
   await self.setRemote();
+}
+
+async function getRemote() {
+  return remote;
 }
 
 async function setSettingsAddresses() {
@@ -433,6 +437,7 @@ async function setFs(args) {
   fs = result.fs;
   return result.name;
 }
+
 //this function sets up the branch that user wants to do things on
 //gets branch name as parameter
 //if there are uncommited changes this function return 2 and abort
@@ -516,6 +521,12 @@ async function currentBranch() {
     dir,
     fullname: false
   })
+}
+
+// Get the current branch's remote name
+async  function currentRemote() {
+  const branch = await currentBranch();
+  return await getConfig(`branch.${branch}.remote`);
 }
 
 function parseIni(content) {
@@ -656,6 +667,8 @@ async function removeAndPush(args) {
 //you can change depth by using setDepth
 //remote is a prerequisite for this function which is being set using clone
 async function doFetch(args) {
+  let deleteAttempt = args.deleteAttempt || 0;
+  const maxDeleteRetries = 1;
   !url && await setUrl(args?.url);
   try {
     try {
@@ -668,7 +681,7 @@ async function doFetch(args) {
     }
   } catch (error) {
     consoleDotError('some error happend while fetching: ', error);
-    await handleDeleteCloseAndReclone(args);
+    await handleGitError(error, args, 'doFetch', maxDeleteRetries);
     return {success: false}
   }
 }
@@ -724,15 +737,29 @@ async function isSync() {
   }
 }
 
-//parameters are remote and url. this function adds remote for an url
-async function addRemote(args) {
+//parameters are remote and url. this function adds remote for a url
+async function addRemote(_url = url, _remote = remote) {
   try{
+    await setRemote(_remote);
     return git.addRemote({
-      url: args.url,
+      url: _url,
       force: true,
       fs,
       dir,
-      remote,
+      remote: _remote,
+    });
+  }
+  catch(error){
+    consoleDotLog('some error happend while adding remote: ', error)
+  }
+}
+
+async function deleteRemote(_remote = remote) {
+  try{
+    return git.deleteRemote({
+      fs,
+      dir,
+      remote: _remote,
     });
   }
   catch(error){
@@ -755,7 +782,7 @@ async function deleteRemote(args) {
   }
 }
 
-//lists remotes for an fs
+//lists remotes for a fs
 async function listRemotes() {
   return git.listRemotes({
     fs, 
@@ -766,7 +793,11 @@ async function listRemotes() {
 //args are remote and url
 async function handleNoRef(args) {
   try {
-    await addRemote(args);
+    const _url = url || args?.url;
+    const _remote = remote || args?.remote;
+    consoleDotLog('handleNoRef args: ', args, _url, _remote, url, remote);
+
+    await addRemote(_url, _remote);
     let branchList = await listRemoteBranches() || [];
     consoleDotLog(branchList)
     if (branchList.length == 0) {
@@ -811,15 +842,79 @@ async function checkDirExists() {
   }
 }
 
+async function handleGitError(error, args, operationName, maxDeleteRetries = 1) {
+  consoleDotError(`Some error happened while ${operationName}: `, error);
+
+  const isAuthError = error && (error.toString().includes('401') || error.toString().includes('403'));
+  const isNetworkError = error && error.toString().toLowerCase().includes('network');
+
+  if (isAuthError || isNetworkError) {
+    consoleDotLog(`Authentication or network error detected. Not deleting the repository.`);
+    throw error;
+  }
+
+  // Ensure deleteAttempt is properly initialized and incremented
+  const deleteAttempt = (args.deleteAttempt || 0) + 1;
+  consoleDotLog('Current delete attempt:', deleteAttempt);
+
+  if (deleteAttempt <= maxDeleteRetries) {
+    const updatedArgs = { ...args, deleteAttempt };
+    if (deleteAttempt === 1) {
+      await handleHardReset(updatedArgs);
+    } else {
+      await handleDeleteCloseAndReclone(updatedArgs);
+    }
+  } else {
+    throw new Error(`${operationName} wasn't successful after ${maxDeleteRetries} attempts: ${error}`);
+  }
+}
+
+
+
+async function handleHardReset(args) {
+  const repoName = await databaseManager.getDatabaseName(args);
+  const resetAttempt = args?.resetAttempt + 1 || 1;
+
+  consoleDotLog(`Attempting hard reset for ${repoName}. Attempt: ${resetAttempt}`);
+
+  try {
+
+    await hardReset({dir, ref: 'HEAD~1', branch: ref})
+
+    consoleDotLog(`Hard reset to HEAD~1 successful for ${repoName}`);
+    
+    return resetAttempt;
+
+  } catch (error) {
+    consoleDotError(`Error during hard reset for ${repoName}: `, error);
+    throw error;
+  }
+}
+
+async function handleDeleteCloseAndReclone(args) {
+  const repoName = await databaseManager.getDatabaseName(args);
+  const deleteAttempt = args?.deleteAttempt + 1 || 1;
+
+  try {
+    await databaseManager.deleteIndexedDB(repoName);
+
+    await doCloneAndStuff({ ...args, url: args.url, deleteAttempt });
+    return;
+
+  } catch (error) {
+    consoleDotError(`Error during delete, close, and reclone process for ${repoName}: `, error);
+  }
+}
+
 //returns false if the repo is not initiated yet
 //parameters are url, remote, ...
 //you can change depth by using setDepth function
 async function doCloneAndStuff(args) {
   let useNetwork = false;
   let deleteAttempt = args.deleteAttempt || 0;
+  args.deleteAttempt = deleteAttempt;
   const maxDeleteRetries = 1;
   const repoName = await databaseManager.getDatabaseName(args);
-  consoleDotLog('doclone repoName ', repoName)
   !url && await setUrl(args?.url);
   await setDepth(depth);
 
@@ -858,27 +953,7 @@ async function doCloneAndStuff(args) {
     }
     return ({handleNoRefResult, message: 'notExist', success: true});
   } catch (error) {
-    consoleDotError('some error happend while doCloneAndStuff: ', error);
-    (deleteAttempt < maxDeleteRetries) && await handleDeleteCloseAndReclone({...args, deleteAttempt});
-    throw ('clone was\'nt successful: ', error);
-  }
-}
-
-async function handleDeleteCloseAndReclone(args) {
-  const repoName = await databaseManager.getDatabaseName(args);
-  const deleteAttempt = args.deleteAttempt + 1;
-
-  try {
-    console.log(`Attempt ${deleteAttempt} to delete and reclone...`);
-    await databaseManager.deleteIndexedDB(repoName);
-
-    console.log('Trying to reclone the repository...');
-    await doCloneAndStuff({ ...args, url: args.url, deleteAttempt });
-    console.log('Reclone successful!');
-    return;
-
-  } catch (error) {
-    consoleDotError(`Error during delete, close, and reclone process for ${repoName} (Attempt ${deleteAttempt}):`, error);
+    await handleGitError(error, args, 'doCloneAndStuff', maxDeleteRetries);
   }
 }
 
@@ -983,7 +1058,7 @@ async function unlink(filePath) {
 
 //gets nothing but dir and returns log of commits
 //you can change depth by using setDepth function
-async function log(args) {
+async function log(args = {}) {
   try {
     consoleDotLog('Attempting to retrieve log with the following args:', { ...args, fs, depth, dir, ref });
     const logResult = await git.log({ ...args, fs, depth, dir, ref });
@@ -1006,6 +1081,9 @@ async function log(args) {
 
 //gets remote, url as parameters
 async function push(args) {
+  let deleteAttempt = args.deleteAttempt || 0;
+  const maxDeleteRetries = 1;
+
   !url && await setUrl(args?.url);
   try {
     await databaseManager.setFs(args);
@@ -1019,19 +1097,79 @@ async function push(args) {
     }
   } catch (error) {
     consoleDotError('some error happend while pushing: ', error);
-    await handleDeleteCloseAndReclone(args);
+    await handleGitError(error, args, 'push', maxDeleteRetries);
     return {success: false}
   }
+}
+
+// the operations are 'push' | 'pop' | 'apply' | 'drop' | 'list' | 'clear'
+async function stash(operation = 'push') {
+  try {
+    if (!(await getEmail() && await getUsername())) {
+      await setUsername({username: 'testUser'});
+      await setEmail({email: 'testUser@example.com'});
+    }
+    
+    await git.stash({
+      fs,
+      dir,
+      op: operation,
+    })
+
+  } catch (error) {
+    consoleDotError('An error occurred while stashing:', error);
+  }
+}
+
+async function status(args) {
+  return await git.status({
+    fs,
+    dir,
+    filepath: args?.filePath,
+  });
+}
+
+async function softReset(commitHash, branch = ref = 'HEAD') {
+  fs.writeFile(dir + `/.git/refs/heads/${branch}`, commitHash, (err) => {
+    if (err) throw err;
+    console.log('git reset has successfully done.');
+  });
+}
+
+// works like this: await hardReset({ dir, ref: 'HEAD~1', branch: ref });
+async function hardReset({dir, ref, branch}) {
+  var re = /^HEAD~([0-9]+)$/
+  var m = ref.match(re);
+  if (m) {
+      var count = +m[1];
+      var commits = await git.log({fs, dir, depth: count + 1});
+      var commit = commits.pop().oid;
+      return new Promise((resolve, reject) => {
+          fs.writeFile(dir + `/.git/refs/heads/${branch}`, commit, (err) => {
+              if (err) {
+                  return reject(err);
+              }
+              fs.unlink(dir + '/.git/index', (err) => {
+                  if (err) {
+                      return reject(err);
+                  }
+                  git.checkout({ fs, dir, ref: branch, force: true }).then(resolve);
+              });
+          });
+      });
+  }
+  return Promise.reject(`Wrong ref ${ref}`);
 }
 
 //This function takes username as argument
 async function setUsername(args) {
   try {
+    const username = args?.username ? args?.username : 'sampleUser';
     await git.setConfig({
       fs,
       dir,
       path: 'user.name',
-      value: args.username
+      value: username
     })
   } catch (error) {
     consoleDotError('An error occurred while setting user name:', error);
@@ -1041,11 +1179,12 @@ async function setUsername(args) {
 //This function takes email as argument
 async function setEmail(args) {
   try {
+    const email = args?.email ? args?.email : 'sampleUser';
     await git.setConfig({
       fs,
       dir: dir,
       path: 'user.email',
-      value: args.email
+      value: email
     })
   } catch (error) {
     consoleDotError('An error occurred while setting email:', error);
@@ -1081,17 +1220,55 @@ async function getUsername() {
   }
 }
 
-async function getRemoteUrl() {
+async function getRemoteUrl(_remote = remote) {
   try {
-    const remoteUrl = await git.getConfig({
+    return await git.getConfig({
       fs,
       dir,
-      path: `remote.${remote}.url`
+      path: `remote.${_remote}.url`
     });
-    consoleDotLog(remoteUrl);
-    return remoteUrl;
   } catch (error) {
     consoleDotError('An error occurred while getting remote url:', error);
+  }
+}
+
+async function setRemoteUrl(_url = url, _remote = remote) {
+  try {
+    await git.setConfig({
+      fs,
+      dir,
+      path: `remote.${_remote}.url`,
+      value: _url
+    });
+  } catch (error) {
+    consoleDotError('An error occurred while setting remote url:', error);
+  }
+}
+
+async function getConfig(path) {
+  try {
+    const config = await git.getConfig({
+      fs,
+      dir,
+      path: path
+    });
+    consoleDotLog(config);
+    return config;
+  } catch (error) {
+    consoleDotError('An error occurred while getting config:', error);
+  }
+}
+
+async function setConfig(path, value) {
+  try {
+    await git.setConfig({
+      fs,
+      dir,
+      path: path,
+      value: value
+    });
+  } catch (error) {
+    consoleDotError('An error occurred while setting config:', error);
   }
 }
 
@@ -1132,6 +1309,9 @@ async function mkdirRecursive(path) {
 //This function takes url, username, email
 //as arguments and pulls the remote directory
 async function pull(args) {
+  let deleteAttempt = args.deleteAttempt || 0;
+  const maxDeleteRetries = 1;
+
   !url && await setUrl(args?.url);
   try {
     await databaseManager.setFs(args);
@@ -1145,13 +1325,16 @@ async function pull(args) {
     }
   } catch (error) {
     consoleDotError('some error happend while pulling: ', error);
-    await handleDeleteCloseAndReclone(args);
+    await handleGitError(error, args, 'pull', maxDeleteRetries);
     return {success: false}
   }
 }
 
 //gets url as argument
 async function fastForward(args) {
+  let deleteAttempt = args.deleteAttempt || 0;
+  const maxDeleteRetries = 1;
+
   try {
     try {
       !url && await setUrl(args?.url);
@@ -1164,7 +1347,7 @@ async function fastForward(args) {
     }
   } catch (error) {
     consoleDotLog('This error occured while fast-forwarding: ', error);
-    await handleDeleteCloseAndReclone(args);
+    await handleGitError(error, args, 'fastForward', maxDeleteRetries);
     return {success: false}
   }
 }
@@ -1172,6 +1355,7 @@ async function fastForward(args) {
 //gets filePath and adds the filePath to the staging area
 async function addFile(args) {
   try {
+    consoleDotLog('addFile log', args);
     let filePath = await relativePath(args.filePath);
     await git.add({
       fs,
@@ -1189,7 +1373,9 @@ async function addDot() {
     const changedFiles = await getChangedFilesList();
     consoleDotLog('changedFiles', changedFiles);
     for (let filePath in changedFiles){
-      await addFile({filePath: filePath});
+      if (!changedFiles[filePath].includes('deleted')){
+        await addFile({filePath});
+      }
     }
   } catch (error) {
     consoleDotError('Error adding all changed files:', error);
@@ -1336,20 +1522,26 @@ async function statusMapper(statusMatrix) {
     addToSetting,
     checkoutBranch,
     commit,
+    currentBranch,
+    currentRemote,
     deleteIndexedDB,
+    deleteRemote,
     doCloneAndStuff,
     doFetch,
     doPushAll,
     doPushFile,
     fastForward,
     getChangedFilesList,
+    getConfig,
     getDatabaseName,
     getEmail,
     getFileStoresFromDatabases,
     getLastRemoteCommit,
     getLastLocalCommit,
+    getRemote,
     getRemoteUrl,
     getUsername,
+    hardReset,
     init,
     isDirectory,
     isSync,
@@ -1365,6 +1557,7 @@ async function statusMapper(statusMatrix) {
     remove,
     removeAndPush,
     setAuthParams,
+    setConfig,
     setConfigs,
     setDatabaseName,
     setDepth,
@@ -1372,8 +1565,12 @@ async function statusMapper(statusMatrix) {
     setFs,
     setRef,
     setRemote,
+    setRemoteUrl,
     setSettingsAddresses,
     setUrl,
+    stash,
+    status,
+    softReset,
     writeFile,    
   });
 })();

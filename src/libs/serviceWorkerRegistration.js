@@ -1,20 +1,28 @@
+let updateChannel;
+
 export async function register() {
   if ('serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration) {
+      console.log('Service Worker already registered:', registration);
+      return;
+    }
+
     // Dynamically determine the base path (GitHub Pages repo name)
-    const basePath = window.location.pathname.split('/')[1];
-    const scopePath = basePath ? `/${basePath}/` : '/';
-    console.log ('scopePath', scopePath);
+    // const basePath = window.location.pathname.split('/')[1];
+    // const scopePath = basePath ? `/${basePath}/` : '/';
+    // console.log('scopePath', scopePath);
+    const scopePath = '/';
+    // Register the service worker with the dynamically set scope
     navigator.serviceWorker
-      .register('service-worker.js', { scope: scopePath }) // Dynamically set scope
+      .register('service-worker.js', { scope: scopePath })
       .then((registration) => {
         console.log('Service Worker registered with scope:', scopePath, registration);
 
-        // If there's an already waiting worker, notify the user
         if (registration.waiting) {
           updateReady(registration.waiting);
         }
 
-        // Listen for updates to the service worker
         registration.onupdatefound = () => {
           const newWorker = registration.installing;
           newWorker.onstatechange = () => {
@@ -49,15 +57,20 @@ export async function register() {
 
 function updateReady(worker) {
   console.log('New update ready:', worker);
-  // Notify the user about the update
+
+  if (!updateChannel) {
+    updateChannel = new BroadcastChannel('sw-update-channel');
+  }
+
   if (confirm("یک نسخه‌ی جدید وجود دارد، آیا می‌خواهید به روزرسانی شود؟")) {
-    // If the user agrees, skip waiting and activate the new worker
     worker.postMessage({ action: 'skipWaiting' });
 
-    // Reload the page to apply the new service worker
     worker.addEventListener('statechange', () => {
       if (worker.state === 'activated') {
-        setTimeout(() => window.location.reload(), 0);
+        setTimeout(() => {
+          if (updateChannel) updateChannel.close();
+          window.location.reload();
+        }, 0);
       }
     });
   }
@@ -65,7 +78,10 @@ function updateReady(worker) {
 
 navigator.serviceWorker.addEventListener('controllerchange', () => {
   console.log('Service Worker controller changed.');
-  // Optionally refresh the page when the new SW takes control
+  if (updateChannel) {
+    updateChannel.close();
+    updateChannel = null;
+  }
   window.location.reload();
 });
 
@@ -74,6 +90,7 @@ export async function unregister() {
     navigator.serviceWorker.ready
       .then((registration) => {
         registration.unregister();
+        console.log('Service Worker unregistered.');
       })
       .catch((error) => {
         console.error(error.message);
